@@ -1,11 +1,24 @@
-"""MLP: Maretime Bay — optional stats service for the GMod mod.
+"""MLP: Maretime Bay — stats / unlocks service for the GMod mod.
 
-Game servers POST snapshots of their players' saved data (their own SQLite stays the source of truth);
-this service keeps one copy per (game server, player) and serves aggregated leaderboards.
+Any game server may report — a dedicated server or a player's own single-player game: there are no keys
+to hand out. Every GMod install makes up its own random id (X-Install-Id) and reports snapshots of its
+players' saved data; the service keeps one copy per (install, player) and serves aggregated leaderboards
+and the unlocked items / spells (other servers read them back).
 
-Aggregation across game servers: counters are summed, "best_*" keys take the maximum, "time_*" keys
-the minimum. Anti-cheat is deliberately light: a server key, a rate limit and a plausibility check on
-how fast counters may grow (implausible jumps are clamped and logged in the `flags` table).
+Aggregation across installs: counters are summed, "best_*" keys take the maximum, "time_*" the minimum.
+
+Anti-cheat is deliberately light — it only stops the obvious:
+- rate limits per install (a whole server, any number of players, is one install sending batches) and a
+  generous flood limit per IP (one IP may be a big server, a hoster with many servers, players behind NAT);
+  a limited number of new installs per IP a day (no farming of fresh ids)
+- every counter may grow only so fast per install (since that install's last report) AND only so much
+  per player per day over all installs together (fresh installs can't multiply it)
+- impossible race times are ignored
+- unlocks must make sense: "bits" items need the stars, a spell needs the one of the tier below, only so
+  many new unlocks per player a day
+- everything clamped / refused is logged in `flags`; admins (MLP_ADMIN_TOKEN) can list the flags and wipe a
+  player or an install
+Optional MLP_SERVER_KEYS ("name:key,…") marks trusted servers (named, no per-IP install limit).
 """
 import json
 import math
@@ -20,25 +33,52 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 DB_PATH = os.environ.get("MLP_DB", "/data/stats.db")
-# "server-name:secret-key,other:key2"; empty + MLP_OPEN=1 accepts any key (local testing only)
 SERVER_KEYS = {}
 for pair in filter(None, (p.strip() for p in os.environ.get("MLP_SERVER_KEYS", "").split(","))):
     name, _, key = pair.partition(":")
     if key:
         SERVER_KEYS[key] = name
-OPEN = os.environ.get("MLP_OPEN", "0") == "1"
-RATE_PER_MIN = int(os.environ.get("MLP_RATE_PER_MIN", "30"))
+ADMIN_TOKEN = os.environ.get("MLP_ADMIN_TOKEN", "")
+RATE_PER_MIN = int(os.environ.get("MLP_RATE_PER_MIN", "30"))         # reports per install
+LOOKUP_PER_MIN = int(os.environ.get("MLP_LOOKUP_PER_MIN", "60"))     # unlock lookups (batches) per install
+IP_RATE_PER_MIN = int(os.environ.get("MLP_IP_RATE_PER_MIN", "300"))  # any requests per IP: flood guard only
+NEW_INSTALLS_PER_IP_DAY = int(os.environ.get("MLP_NEW_INSTALLS_PER_IP_DAY", "20"))  # hosters run many servers on one IP
+MAX_LOOKUP = 128
 
 MAX_PLAYERS = 128
 MAX_STATS = 96
 KEY_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 SID_RE = re.compile(r"^\d{1,20}$")
 ITEM_RE = re.compile(r"^[A-Za-z0-9_]{1,48}$")
+INSTALL_RE = re.compile(r"^[0-9a-f]{32}$")
 UNLOCK_KINDS = ("vanity", "spell")
 MAX_UNLOCKS = 128
-# fastest believable growth per minute since the last report (plus a small allowance)
+
+# fastest believable growth per minute since this install's last report (plus a small allowance)
 GROWTH = {"stars": (150, 300), "vanity": (10, 40), "playtime": (70, 600)}
 GROWTH_DEFAULT = (20, 50)
+# the most a player may gain per day over all installs together (by key, then by prefix)
+DAILY = {"stars": 2500, "playtime": 86400, "vanity": 40, "spells": 6, "botwins": 300}
+DAILY_PREFIX = {"games_": 500, "wins_": 300, "botraces_": 500, "botwins_": 300}
+DAILY_DEFAULT = 500
+# a race can't be won faster than this (seconds)
+MIN_TIME = {"time_skyrace": 6, "time_groundrace": 4}
+MIN_TIME_DEFAULT = 3
+
+# the game's collectibles: "bits" items need this many all-time stars (game value × half the mod's default
+# mlp_vanity_scale of 0.1 — servers may lower it); the others are gifts / defaults
+VANITY_BITS = {
+    "AlicornWingsV1": 1936, "FakeWingsV2": 1550, "FloatV1": 1615, "ShirtCollarV1": 1357, "Glasses01V1": 650,
+    "Glasses01V2": 925, "Glasses02V1": 1679, "Glasses02V2": 1164, "GrannyGlassesV2": 1422, "PartyGlassesV2": 1807,
+    "BeanieV2": 1100, "FakeHornV1": 1486, "IzzyHatV1": 1229, "PearlEarringsV1": 714, "SoldierHelmetV1": 975,
+    "WindmillHornV1": 1872, "ChokerV1": 1743, "CutieMarkV1": 875, "Scarf01V1": 1036, "Scarf01V2": 790, "Scarf02V2": 1293,
+}
+VANITY_QUEST = {"FakeWingsV1", "PegasiNecklaceV1", "SunnyPurseV1", "SunnyPurseV2", "GrannyGlassesV1", "PartyGlassesV1",
+                "AlicornHornV1", "BeanieV1", "FashionMarkV1", "FlowerNecklaceV1", "Scarf02V1"}
+MIN_SCALE = 0.05
+SPELL_TIER = {"telekinesis": 2, "shield": 3, "bolt": 3, "levitate": 4, "teleport": 5}  # light (tier 1) is never stored
+# a long-time player catching up gets the rest over the next reports (the mod resends everything)
+NEW_UNLOCKS_PER_DAY = {"vanity": 16, "spell": 5}
 
 app = FastAPI(title="MLP Maretime Bay stats", docs_url="/api/docs", openapi_url="/api/openapi.json")
 lock = threading.Lock()
@@ -57,14 +97,17 @@ def init():
         con.executescript(
             """
             CREATE TABLE IF NOT EXISTS servers ( name TEXT PRIMARY KEY, last_seen INTEGER, map TEXT );
+            CREATE TABLE IF NOT EXISTS installs ( id TEXT PRIMARY KEY, ip TEXT, first_seen INTEGER, last_seen INTEGER, title TEXT );
             CREATE TABLE IF NOT EXISTS players ( steamid TEXT PRIMARY KEY, nick TEXT, first_seen INTEGER, last_seen INTEGER, last_server TEXT );
             CREATE TABLE IF NOT EXISTS server_stats ( server TEXT, steamid TEXT, key TEXT, value REAL, updated INTEGER,
                 PRIMARY KEY ( server, steamid, key ) );
             CREATE TABLE IF NOT EXISTS server_items ( server TEXT, steamid TEXT, kind TEXT, count INTEGER, PRIMARY KEY ( server, steamid, kind ) );
             CREATE TABLE IF NOT EXISTS unlocks ( steamid TEXT, kind TEXT, item TEXT, server TEXT, ts INTEGER, PRIMARY KEY ( steamid, kind, item ) );
+            CREATE TABLE IF NOT EXISTS budget ( steamid TEXT, key TEXT, day INTEGER, gained REAL, PRIMARY KEY ( steamid, key, day ) );
             CREATE TABLE IF NOT EXISTS characters ( steamid TEXT, character TEXT, PRIMARY KEY ( steamid, character ) );
             CREATE TABLE IF NOT EXISTS flags ( ts INTEGER, server TEXT, steamid TEXT, key TEXT, old REAL, new REAL, kept REAL );
             CREATE INDEX IF NOT EXISTS idx_stats_key ON server_stats ( key );
+            CREATE INDEX IF NOT EXISTS idx_installs_ip ON installs ( ip, first_seen );
             """
         )
 
@@ -80,15 +123,42 @@ def agg(key):
     return "SUM"
 
 
-def rate_ok(key):
+def daily_cap(key):
+    if key in DAILY:
+        return DAILY[key]
+    for prefix, cap in DAILY_PREFIX.items():
+        if key.startswith(prefix):
+            return cap
+    return DAILY_DEFAULT
+
+
+def rate_ok(bucket, per_min):
     now = time.time()
-    q = hits[key]
+    q = hits[bucket]
     while q and now - q[0] > 60:
         q.popleft()
-    if len(q) >= RATE_PER_MIN:
+    if len(q) >= per_min:
         return False
     q.append(now)
     return True
+
+
+def client_ip(request):
+    # behind Cloudflare / a reverse proxy
+    for h in ("cf-connecting-ip", "x-real-ip"):
+        if request.headers.get(h):
+            return request.headers[h][:64]
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()[:64]
+    return request.client.host if request.client else "?"
+
+
+def check_ip(request):
+    ip = client_ip(request)
+    if not rate_ok("ip:" + ip, IP_RATE_PER_MIN):
+        raise HTTPException(429, "too many requests")
+    return ip
 
 
 def num(v):
@@ -97,20 +167,33 @@ def num(v):
     return max(0.0, min(float(v), 1e9))
 
 
+def flag(con, now, server, sid, key, old, new, kept):
+    con.execute("INSERT INTO flags VALUES ( ?, ?, ?, ?, ?, ?, ? )", (now, server, sid, key, old, new, kept))
+
+
+def spend(con, sid, key, day, want):
+    """Take up to `want` from the player's daily budget for this key; returns what was granted."""
+    row = con.execute("SELECT gained FROM budget WHERE steamid = ? AND key = ? AND day = ?", (sid, key, day)).fetchone()
+    gained = row["gained"] if row else 0.0
+    grant = max(0.0, min(want, daily_cap(key) - gained))
+    if grant > 0:
+        con.execute("REPLACE INTO budget ( steamid, key, day, gained ) VALUES ( ?, ?, ?, ? )", (sid, key, day, gained + grant))
+    return grant
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "time": int(time.time())}
 
 
 @app.post("/api/v1/report")
-async def report(request: Request, x_server_key: str = Header(default="")):
-    if x_server_key in SERVER_KEYS:
-        server = SERVER_KEYS[x_server_key]
-    elif OPEN and x_server_key:
-        server = None  # named by the report itself
-    else:
-        raise HTTPException(401, "unknown server key")
-    if not rate_ok(x_server_key):
+async def report(request: Request, x_install_id: str = Header(default=""), x_server_key: str = Header(default="")):
+    ip = check_ip(request)
+    trusted = x_server_key in SERVER_KEYS
+    install = x_install_id.lower()
+    if not trusted and not INSTALL_RE.match(install):
+        raise HTTPException(400, "X-Install-Id missing")
+    if not rate_ok("inst:" + (x_server_key if trusted else install), RATE_PER_MIN):
         raise HTTPException(429, "too many reports")
     try:
         body = json.loads(await request.body())
@@ -119,14 +202,25 @@ async def report(request: Request, x_server_key: str = Header(default="")):
     if not isinstance(body, dict) or not isinstance(body.get("players"), list):
         raise HTTPException(400, "players missing")
     info = body.get("server") if isinstance(body.get("server"), dict) else {}
-    if server is None:
-        server = str(info.get("name") or "unnamed")[:64]
+    title = str(info.get("name") or "")[:64]
     mapname = str(info.get("map") or "")[:64]
     now = int(time.time())
+    day = now // 86400
+    server = ("key:" + SERVER_KEYS[x_server_key]) if trusted else ("i:" + install)
     accepted, clamped = 0, 0
 
     with lock, db() as con:
+        if not trusted:
+            known = con.execute("SELECT id FROM installs WHERE id = ?", (install,)).fetchone()
+            if not known:
+                fresh = con.execute("SELECT COUNT(*) AS n FROM installs WHERE ip = ? AND first_seen > ?", (ip, now - 86400)).fetchone()["n"]
+                if fresh >= NEW_INSTALLS_PER_IP_DAY:
+                    raise HTTPException(429, "too many new installs from this address")
+                con.execute("INSERT INTO installs ( id, ip, first_seen, last_seen, title ) VALUES ( ?, ?, ?, ?, ? )", (install, ip, now, now, title))
+            else:
+                con.execute("UPDATE installs SET last_seen = ?, title = ?, ip = ? WHERE id = ?", (now, title, ip, install))
         con.execute("REPLACE INTO servers ( name, last_seen, map ) VALUES ( ?, ?, ? )", (server, now, mapname))
+
         for p in body["players"][:MAX_PLAYERS]:
             if not isinstance(p, dict):
                 continue
@@ -139,6 +233,7 @@ async def report(request: Request, x_server_key: str = Header(default="")):
                 "ON CONFLICT ( steamid ) DO UPDATE SET nick = excluded.nick, last_seen = excluded.last_seen, last_server = excluded.last_server",
                 (sid, nick, now, now, server),
             )
+            # ---- counters
             stats = dict(p.get("stats") or {}) if isinstance(p.get("stats"), dict) else {}
             pt = num(p.get("playtime"))
             if pt is not None:
@@ -148,30 +243,73 @@ async def report(request: Request, x_server_key: str = Header(default="")):
                 if value is None or not KEY_RE.match(key):
                     continue
                 row = con.execute("SELECT value, updated FROM server_stats WHERE server = ? AND steamid = ? AND key = ?", (server, sid, key)).fetchone()
+                fn = agg(key)
                 kept = value
-                if row and agg(key) == "SUM" and value > row["value"]:
-                    per_min, allowance = GROWTH.get(key, GROWTH_DEFAULT)
-                    minutes = max(0.0, (now - row["updated"]) / 60)
-                    limit = row["value"] + allowance + per_min * minutes
-                    if value > limit:
-                        kept = limit
+                if fn == "MIN":
+                    if value < MIN_TIME.get(key, MIN_TIME_DEFAULT):
+                        flag(con, now, server, sid, key, row["value"] if row else -1, value, -1)
                         clamped += 1
-                        con.execute("INSERT INTO flags VALUES ( ?, ?, ?, ?, ?, ?, ? )", (now, server, sid, key, row["value"], value, kept))
+                        continue
+                elif fn == "SUM":
+                    old = row["value"] if row else 0.0
+                    if value > old:
+                        limit = value
+                        if row:  # this install: not faster than believable since its last report
+                            per_min, allowance = GROWTH.get(key, GROWTH_DEFAULT)
+                            limit = old + allowance + per_min * max(0.0, (now - row["updated"]) / 60)
+                        # the player over all installs: only so much a day
+                        grant = spend(con, sid, key, day, min(value, limit) - old)
+                        kept = old + grant
+                        if kept < value - 1e-6:
+                            flag(con, now, server, sid, key, old, value, kept)
+                            clamped += 1
                 con.execute("REPLACE INTO server_stats ( server, steamid, key, value, updated ) VALUES ( ?, ?, ?, ?, ? )", (server, sid, key, kept, now))
             items = p.get("items") if isinstance(p.get("items"), dict) else {}
             for kind, count in list(items.items())[:16]:
                 count = num(count)
                 if count is not None and KEY_RE.match(str(kind)):
                     con.execute("REPLACE INTO server_items ( server, steamid, kind, count ) VALUES ( ?, ?, ?, ? )", (server, sid, str(kind), int(count)))
-            # unlocked collectibles / spells: kept forever, shared with every server of this service
+            # ---- unlocks: kept forever, shared with every server; only ones that make sense
             unlocked = p.get("unlocked") if isinstance(p.get("unlocked"), dict) else {}
-            for kind in UNLOCK_KINDS:
-                ids = unlocked.get(kind)
-                if not isinstance(ids, list):
-                    continue
-                for item in ids[:MAX_UNLOCKS]:
-                    if isinstance(item, str) and ITEM_RE.match(item):
+            if unlocked:
+                have = {(r["kind"], r["item"]) for r in con.execute("SELECT kind, item FROM unlocks WHERE steamid = ?", (sid,))}
+                stars = con.execute("SELECT COALESCE( SUM( value ), 0 ) AS s FROM server_stats WHERE steamid = ? AND key = 'stars'", (sid,)).fetchone()["s"]
+                today = con.execute("SELECT kind, COUNT(*) AS n FROM unlocks WHERE steamid = ? AND ts >= ? GROUP BY kind", (sid, day * 86400)).fetchall()
+                new_today = {r["kind"]: r["n"] for r in today}
+                spells = {i for k, i in have if k == "spell"} | {s for s in (unlocked.get("spell") or []) if isinstance(s, str)}
+                for kind in UNLOCK_KINDS:
+                    ids = unlocked.get(kind)
+                    if not isinstance(ids, list):
+                        continue
+                    # lower tiers first, so a spell of the tier below counts within the same report
+                    ids = [i for i in ids[:MAX_UNLOCKS] if isinstance(i, str) and ITEM_RE.match(i)]
+                    if kind == "spell":
+                        ids.sort(key=lambda i: SPELL_TIER.get(i, 99))
+                    for item in ids:
+                        if (kind, item) in have:
+                            continue
+                        why = None
+                        if kind == "vanity":
+                            if item in VANITY_BITS:
+                                if stars < math.ceil(VANITY_BITS[item] * MIN_SCALE):
+                                    why = "unlock_stars"
+                            elif item not in VANITY_QUEST:
+                                why = "unlock_unknown"
+                        else:
+                            tier = SPELL_TIER.get(item)
+                            if not tier:
+                                why = "unlock_unknown"
+                            elif tier > 2 and not any(SPELL_TIER.get(s) == tier - 1 for s in spells):
+                                why = "unlock_tier"
+                        if not why and new_today.get(kind, 0) >= NEW_UNLOCKS_PER_DAY[kind]:
+                            why = "unlock_daily"
+                        if why:
+                            flag(con, now, server, sid, why + ":" + item, 0, 1, 0)
+                            clamped += 1
+                            continue
                         con.execute("INSERT OR IGNORE INTO unlocks ( steamid, kind, item, server, ts ) VALUES ( ?, ?, ?, ?, ? )", (sid, kind, item, server, now))
+                        have.add((kind, item))
+                        new_today[kind] = new_today.get(kind, 0) + 1
             chars = p.get("characters") if isinstance(p.get("characters"), list) else []
             for c in chars[:16]:
                 if KEY_RE.match(str(c)):
@@ -180,26 +318,50 @@ async def report(request: Request, x_server_key: str = Header(default="")):
     return {"ok": True, "server": server, "players": accepted, "clamped": clamped}
 
 
-def server_of(key):
-    if key in SERVER_KEYS:
-        return SERVER_KEYS[key]
-    if OPEN and key:
-        return "open"
-    raise HTTPException(401, "unknown server key")
+def unlocks_of(con, steamids):
+    out = {sid: {k: [] for k in UNLOCK_KINDS} for sid in steamids}
+    marks = ",".join("?" * len(steamids))
+    for r in con.execute(f"SELECT steamid, kind, item FROM unlocks WHERE steamid IN ( {marks} ) ORDER BY ts", tuple(steamids)):
+        if r["kind"] in UNLOCK_KINDS:
+            out[r["steamid"]][r["kind"]].append(r["item"])
+    return out
+
+
+def lookup_ok(request, install):
+    check_ip(request)
+    install = (install or "").lower()
+    if INSTALL_RE.match(install) and not rate_ok("look:" + install, LOOKUP_PER_MIN):
+        raise HTTPException(429, "too many lookups")
 
 
 @app.get("/api/v1/unlocks/{steamid}")
-def unlocks(steamid: str, x_server_key: str = Header(default="")):
-    """What a player unlocked on any game server of this service (read by the servers themselves)."""
-    server_of(x_server_key)
+def unlocks(steamid: str, request: Request, x_install_id: str = Header(default="")):
+    """What a player unlocked on any game server (read by the servers themselves)."""
+    lookup_ok(request, x_install_id)
     if not SID_RE.match(steamid):
         raise HTTPException(400, "bad steamid")
-    out = {k: [] for k in UNLOCK_KINDS}
     with db() as con:
-        for r in con.execute("SELECT kind, item FROM unlocks WHERE steamid = ? ORDER BY ts", (steamid,)):
-            if r["kind"] in out:
-                out[r["kind"]].append(r["item"])
-    return {"steamid": steamid, **out}
+        return {"steamid": steamid, **unlocks_of(con, [steamid])[steamid]}
+
+
+@app.post("/api/v1/unlocks")
+async def unlocks_batch(request: Request, x_install_id: str = Header(default="")):
+    """The same for a whole server at once: { "steamids": [ … up to 128 ] } -> { "players": [ { "steamid", "vanity", "spell" } ] }
+    (a list, not keyed by SteamID: GMod's JSON reader turns numeric keys into lossy numbers)."""
+    lookup_ok(request, x_install_id)
+    try:
+        body = json.loads(await request.body())
+    except Exception:
+        raise HTTPException(400, "bad json")
+    ids = body.get("steamids") if isinstance(body, dict) else None
+    if not isinstance(ids, list):
+        raise HTTPException(400, "steamids missing")
+    ids = list(dict.fromkeys(str(s) for s in ids[:MAX_LOOKUP] if SID_RE.match(str(s))))
+    if not ids:
+        return {"players": []}
+    with db() as con:
+        found = unlocks_of(con, ids)
+    return {"players": [{"steamid": sid, **found[sid]} for sid in ids]}
 
 
 @app.get("/api/v1/leaderboard")
@@ -220,12 +382,12 @@ def leaderboard(stat: str = "stars", limit: int = 20):
 
 @app.get("/api/v1/items/leaderboard")
 def items_leaderboard(kind: str = "vanity", limit: int = 20):
-    if not KEY_RE.match(kind):
+    if kind not in UNLOCK_KINDS:
         raise HTTPException(400, "bad kind")
     with db() as con:
         rows = con.execute(
-            "SELECT i.steamid, p.nick, MAX( i.count ) AS value FROM server_items i JOIN players p ON p.steamid = i.steamid "
-            "WHERE i.kind = ? GROUP BY i.steamid ORDER BY value DESC LIMIT ?",
+            "SELECT u.steamid, p.nick, COUNT(*) AS value FROM unlocks u JOIN players p ON p.steamid = u.steamid "
+            "WHERE u.kind = ? GROUP BY u.steamid ORDER BY value DESC LIMIT ?",
             (kind, max(1, min(limit, 100))),
         ).fetchall()
     return {"kind": kind, "rows": [dict(r) for r in rows]}
@@ -245,7 +407,7 @@ def player(steamid: str):
             cur = stats.get(r["key"])
             v = r["value"]
             stats[r["key"]] = v if cur is None else (cur + v if fn == "SUM" else (max(cur, v) if fn == "MAX" else min(cur, v)))
-        items = {r["kind"]: r["c"] for r in con.execute("SELECT kind, MAX( count ) AS c FROM server_items WHERE steamid = ? GROUP BY kind", (steamid,))}
+        items = {r["kind"]: r["c"] for r in con.execute("SELECT kind, COUNT(*) AS c FROM unlocks WHERE steamid = ? GROUP BY kind", (steamid,))}
         chars = [r["character"] for r in con.execute("SELECT character FROM characters WHERE steamid = ?", (steamid,))]
     return {"steamid": steamid, "nick": p["nick"], "last_seen": p["last_seen"], "stats": stats, "items": items, "characters": chars}
 
@@ -254,6 +416,42 @@ def player(steamid: str):
 def stat_keys():
     with db() as con:
         return {"keys": [r["key"] for r in con.execute("SELECT DISTINCT key FROM server_stats ORDER BY key")]}
+
+
+# ---------------------------------------------------------------------------------------------- admin
+def admin(token):
+    if not ADMIN_TOKEN or token != ADMIN_TOKEN:
+        raise HTTPException(403, "admin only")
+
+
+@app.get("/api/v1/admin/flags")
+def admin_flags(limit: int = 100, x_admin_token: str = Header(default="")):
+    admin(x_admin_token)
+    with db() as con:
+        rows = con.execute("SELECT * FROM flags ORDER BY ts DESC LIMIT ?", (max(1, min(limit, 1000)),)).fetchall()
+    return {"rows": [dict(r) for r in rows]}
+
+
+@app.delete("/api/v1/admin/player/{steamid}")
+def admin_wipe_player(steamid: str, x_admin_token: str = Header(default="")):
+    """Forget a cheater: stats, items, unlocks, characters."""
+    admin(x_admin_token)
+    with lock, db() as con:
+        for t in ("server_stats", "server_items", "unlocks", "characters", "budget", "players"):
+            con.execute(f"DELETE FROM {t} WHERE steamid = ?", (steamid,))
+    return {"ok": True}
+
+
+@app.delete("/api/v1/admin/install/{install}")
+def admin_wipe_install(install: str, x_admin_token: str = Header(default="")):
+    """Drop everything one install (or trusted server, "key:<name>") ever reported."""
+    admin(x_admin_token)
+    server = install if install.startswith("key:") else "i:" + install.lower()
+    with lock, db() as con:
+        for t in ("server_stats", "server_items", "unlocks"):
+            con.execute(f"DELETE FROM {t} WHERE server = ?", (server,))
+        con.execute("DELETE FROM servers WHERE name = ?", (server,))
+    return {"ok": True}
 
 
 @app.get("/")
