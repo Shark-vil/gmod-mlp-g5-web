@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maretime Bay — рекорды</title>
+<style>
+  :root { --bg: #fff6fb; --card: #ffffff; --text: #56308a; --muted: #9a7cc0; --pink: #ff78be; --lilac: #a882ff; --row: #ffecf7; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1a1224; --card: #261b36; --text: #f3e9ff; --muted: #b9a2d8; --row: #2f2242; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.4 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { background: linear-gradient(90deg, var(--pink), var(--lilac)); color: #fff; padding: 24px 16px; text-align: center; }
+  header h1 { margin: 0; font-size: 28px; }
+  header p { margin: 4px 0 0; opacity: .9; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  nav button { border: 0; border-radius: 999px; padding: 8px 16px; background: var(--row); color: var(--text); font: inherit; cursor: pointer; }
+  nav button.on { background: var(--pink); color: #fff; }
+  .card { background: var(--card); border-radius: 18px; padding: 8px; box-shadow: 0 4px 18px rgba(120, 70, 200, .12); }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 10px 12px; text-align: left; }
+  tr:nth-child(even) td { background: var(--row); }
+  td.n { width: 48px; color: var(--muted); }
+  td.v { text-align: right; font-weight: 700; }
+  .empty { padding: 24px; text-align: center; color: var(--muted); }
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 16px; }
+</style>
+</head>
+<body>
+<header><h1>Maretime Bay</h1><p>Рекорды пони со всех серверов</p></header>
+<main>
+  <nav id="tabs"></nav>
+  <div class="card"><table><tbody id="rows"></tbody></table></div>
+</main>
+<footer>Всё открывается только игрой. Никакого доната.</footer>
+<script>
+const TABS = [
+  { label: "Звёзды", url: "/api/v1/leaderboard?stat=stars" },
+  { label: "Коллекция", url: "/api/v1/items/leaderboard?kind=vanity" },
+  { label: "Заклинания", url: "/api/v1/items/leaderboard?kind=spell" },
+  { label: "Время в игре", url: "/api/v1/leaderboard?stat=playtime", fmt: v => (v / 3600).toFixed(1) + " ч" },
+];
+const tabs = document.getElementById("tabs"), rows = document.getElementById("rows");
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+async function show(i) {
+  [...tabs.children].forEach((b, j) => b.classList.toggle("on", i === j));
+  rows.innerHTML = '<tr><td class="empty">…</td></tr>';
+  try {
+    const data = await (await fetch(TABS[i].url)).json();
+    if (!data.rows || !data.rows.length) { rows.innerHTML = '<tr><td class="empty">Пока пусто</td></tr>'; return; }
+    rows.innerHTML = data.rows.map((r, k) =>
+      `<tr><td class="n">${k + 1}</td><td>${esc(r.nick || r.steamid)}</td><td class="v">${esc(TABS[i].fmt ? TABS[i].fmt(r.value) : Math.round(r.value))}</td></tr>`).join("");
+  } catch (e) { rows.innerHTML = '<tr><td class="empty">Сервер статистики недоступен</td></tr>'; }
+}
+TABS.forEach((t, i) => { const b = document.createElement("button"); b.textContent = t.label; b.onclick = () => show(i); tabs.appendChild(b); });
+show(0);
+</script>
+</body>
+</html>
