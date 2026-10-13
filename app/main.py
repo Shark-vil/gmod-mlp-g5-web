@@ -82,6 +82,8 @@ DAILY_DEFAULT = 500
 # a race can't be won faster than this (seconds)
 MIN_TIME = {"time_skyrace": 6, "time_groundrace": 4}
 MIN_TIME_DEFAULT = 3
+# a best score can't be higher than this (the dance minigame: every note perfect at the top combo ≈ 1300)
+MAX_BEST = {"best_dance": 1500}
 
 # the game's collectibles: "bits" items need this many all-time stars (game value × half the mod's default
 # mlp_vanity_scale of 0.1 — servers may lower it); the others are gifts / defaults
@@ -309,6 +311,11 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
                 kept = value
                 if fn == "MIN":
                     if value < MIN_TIME.get(key, MIN_TIME_DEFAULT):
+                        flag(con, now, server, sid, key, row["value"] if row else -1, value, -1)
+                        clamped += 1
+                        continue
+                elif fn == "MAX":
+                    if value > MAX_BEST.get(key, 1e9):
                         flag(con, now, server, sid, key, row["value"] if row else -1, value, -1)
                         clamped += 1
                         continue
