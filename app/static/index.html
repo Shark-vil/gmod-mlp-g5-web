@@ -39,6 +39,8 @@ const TABS = [
   { label: "Коллекция", url: "/api/v1/items/leaderboard?kind=vanity" },
   { label: "Заклинания", url: "/api/v1/items/leaderboard?kind=spell" },
   { label: "Время в игре", url: "/api/v1/leaderboard?stat=playtime", fmt: v => (v / 3600).toFixed(1) + " ч" },
+  { label: "Победы над ботами", url: "/api/v1/leaderboard?stat=botwins" },
+  { label: "Победы над мастером", url: "/api/v1/leaderboard?stat=botwins_master" },
 ];
 const tabs = document.getElementById("tabs"), rows = document.getElementById("rows");
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
