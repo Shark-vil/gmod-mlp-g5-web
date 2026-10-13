@@ -76,8 +76,8 @@ MAX_UNLOCKS = 128
 GROWTH = {"stars": (150, 300), "vanity": (10, 40), "playtime": (70, 3600)}
 GROWTH_DEFAULT = (20, 50)
 # the most a player may gain per day over all installs together (by key, then by prefix)
-DAILY = {"stars": 2500, "playtime": 86400, "vanity": 40, "spells": 6, "botwins": 300}
-DAILY_PREFIX = {"games_": 500, "wins_": 300, "botraces_": 500, "botwins_": 300}
+DAILY = {"stars": 2500, "playtime": 86400, "vanity": 40, "spells": 6, "botwins": 300, "pvpwins": 300}
+DAILY_PREFIX = {"games_": 500, "wins_": 300, "botraces_": 500, "botwins_": 300, "pvpgames_": 500, "pvpwins_": 300}
 DAILY_DEFAULT = 500
 # a race can't be won faster than this (seconds)
 MIN_TIME = {"time_skyrace": 6, "time_groundrace": 4}

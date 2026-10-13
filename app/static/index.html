@@ -5,58 +5,145 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Maretime Bay — рекорды</title>
 <style>
-  :root { --bg: #fff6fb; --card: #ffffff; --text: #56308a; --muted: #9a7cc0; --pink: #ff78be; --lilac: #a882ff; --row: #ffecf7; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #1a1224; --card: #261b36; --text: #f3e9ff; --muted: #b9a2d8; --row: #2f2242; } }
+  :root { --bg: #fff6fb; --card: #ffffff; --text: #56308a; --muted: #9a7cc0; --pink: #ff78be; --lilac: #a882ff; --row: #ffecf7; --line: #f3d9ea; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1a1224; --card: #261b36; --text: #f3e9ff; --muted: #b9a2d8; --row: #2f2242; --line: #3a2a52; } }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 16px/1.4 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-  header { background: linear-gradient(90deg, var(--pink), var(--lilac)); color: #fff; padding: 24px 16px; text-align: center; }
-  header h1 { margin: 0; font-size: 28px; }
-  header p { margin: 4px 0 0; opacity: .9; }
-  main { max-width: 760px; margin: 0 auto; padding: 16px; }
-  nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-  nav button { border: 0; border-radius: 999px; padding: 8px 16px; background: var(--row); color: var(--text); font: inherit; cursor: pointer; }
-  nav button.on { background: var(--pink); color: #fff; }
-  .card { background: var(--card); border-radius: 18px; padding: 8px; box-shadow: 0 4px 18px rgba(120, 70, 200, .12); }
+  body { margin: 0; font: 15px/1.4 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  .bar { height: 4px; background: linear-gradient(90deg, var(--pink), var(--lilac)); }
+  main { max-width: 760px; margin: 0 auto; padding: 12px 16px 16px; }
+  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+  .top b { font-size: 17px; }
+  .top span { color: var(--muted); font-size: 13px; }
+  .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  select, input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--card); color: var(--text); font: inherit; }
+  select:focus, input:focus { outline: 2px solid var(--pink); outline-offset: -1px; }
+  @media (max-width: 560px) { .controls { grid-template-columns: 1fr 1fr; } .controls input { grid-column: 1 / -1; } }
+  .card { background: var(--card); border-radius: 14px; padding: 4px; box-shadow: 0 3px 14px rgba(120, 70, 200, .10); }
   table { width: 100%; border-collapse: collapse; }
-  td, th { padding: 10px 12px; text-align: left; }
-  tr:nth-child(even) td { background: var(--row); }
-  td.n { width: 48px; color: var(--muted); }
-  td.v { text-align: right; font-weight: 700; }
-  .empty { padding: 24px; text-align: center; color: var(--muted); }
-  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 16px; }
+  td { padding: 8px 10px; }
+  tr.r { cursor: pointer; }
+  tr.r:hover td, tr.open td { background: var(--row); }
+  td.n { width: 44px; color: var(--muted); text-align: center; }
+  td.nick { overflow-wrap: anywhere; }
+  td.v { text-align: right; font-weight: 700; white-space: nowrap; }
+  .empty { padding: 20px; text-align: center; color: var(--muted); }
+  .prof td { padding: 4px 10px 12px; background: var(--row); }
+  .prof h4 { margin: 8px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 14px; }
+  .grid div { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+  .grid div b { white-space: nowrap; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 14px; }
 </style>
 </head>
 <body>
-<header><h1>Maretime Bay</h1><p>Рекорды пони со всех серверов</p></header>
+<div class="bar"></div>
 <main>
-  <nav id="tabs"></nav>
+  <div class="top"><b>Maretime Bay · рекорды</b><span>со всех серверов</span></div>
+  <div class="controls">
+    <select id="cat" aria-label="Категория"></select>
+    <select id="stat" aria-label="Показатель"></select>
+    <input id="q" type="search" placeholder="Найти пони по нику" aria-label="Поиск по нику">
+  </div>
   <div class="card"><table><tbody id="rows"></tbody></table></div>
 </main>
-<footer>Всё открывается только игрой. Никакого доната.</footer>
+<footer>Всё открывается только игрой. Никакого доната. Нажмите на игрока — его статистика.</footer>
 <script>
-const TABS = [
-  { label: "Звёзды", url: "/api/v1/leaderboard?stat=stars" },
-  { label: "Коллекция", url: "/api/v1/items/leaderboard?kind=vanity" },
-  { label: "Заклинания", url: "/api/v1/items/leaderboard?kind=spell" },
-  { label: "Время в игре", url: "/api/v1/leaderboard?stat=playtime", fmt: v => (v / 3600).toFixed(1) + " ч" },
-  { label: "Победы над ботами", url: "/api/v1/leaderboard?stat=botwins" },
-  { label: "Победы над мастером", url: "/api/v1/leaderboard?stat=botwins_master" },
-  { label: "Танец", url: "/api/v1/leaderboard?stat=best_dance" },
+const hours = v => (v / 3600).toFixed(1) + " ч";
+const secs = v => { const m = Math.floor(v / 60), s = (v - m * 60).toFixed(2).padStart(5, "0"); return m + ":" + s; };
+const stat = (key, label, fmt) => ({ key, label, fmt, url: "/api/v1/leaderboard?stat=" + key });
+const CATS = [
+  { label: "Общее", stats: [
+    stat("stars", "Звёзды за всё время"),
+    { key: "items:vanity", label: "Коллекция", url: "/api/v1/items/leaderboard?kind=vanity" },
+    { key: "items:spell", label: "Заклинания", url: "/api/v1/items/leaderboard?kind=spell" },
+    stat("playtime", "Время в игре", hours),
+  ] },
+  { label: "Танец", stats: [
+    stat("best_dance", "Лучший счёт"), stat("wins_dance", "Победы"), stat("medal_dance_gold", "Золотые медали"), stat("games_dance", "Сыграно"),
+  ] },
+  { label: "Гонка в небе", stats: [ stat("time_skyrace", "Лучшее время", secs), stat("wins_skyrace", "Победы"), stat("games_skyrace", "Сыграно") ] },
+  { label: "Гонка на роликах", stats: [ stat("time_groundrace", "Лучшее время", secs), stat("wins_groundrace", "Победы"), stat("games_groundrace", "Сыграно") ] },
+  { label: "Против игроков", stats: [
+    stat("pvpwins", "Победы, всего"), stat("pvpwins_dance", "Победы в танце"), stat("pvpwins_skyrace", "Победы в небе"), stat("pvpwins_groundrace", "Победы на роликах"),
+  ] },
+  { label: "Против ботов", stats: [
+    stat("botwins", "Победы, всего"), stat("botwins_master", "Над мастером"), stat("botwins_skilled", "Над опытным"),
+    stat("botwins_casual", "Над любителем"), stat("botwins_rookie", "Над новичком"),
+  ] },
 ];
-const tabs = document.getElementById("tabs"), rows = document.getElementById("rows");
+const PONIES = { sunny: "Санни", izzy: "Иззи", hitch: "Хитч", pipp: "Пипп", zipp: "Зипп" };
+const MEDAL = ["🥇", "🥈", "🥉"];
+const $ = id => document.getElementById(id);
+const cat = $("cat"), sel = $("stat"), q = $("q"), rows = $("rows");
+let data = [], cur = null, openSid = null;
+
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
-async function show(i) {
-  [...tabs.children].forEach((b, j) => b.classList.toggle("on", i === j));
+function fmt(st, v) { return st.fmt ? st.fmt(v) : Math.round(v).toLocaleString("ru-RU"); }
+
+function fillStats(ci, key) {
+  sel.innerHTML = CATS[ci].stats.map((s, i) => `<option value="${i}">${esc(s.label)}</option>`).join("");
+  sel.value = Math.max(0, CATS[ci].stats.findIndex(s => s.key === key));
+}
+
+function render() {
+  const f = q.value.trim().toLowerCase();
+  const list = data.map((r, k) => ({ ...r, place: k + 1 })).filter(r => !f || String(r.nick || r.steamid).toLowerCase().includes(f));
+  if (!list.length) { rows.innerHTML = `<tr><td class="empty">${data.length ? "Никого с таким ником" : "Пока пусто"}</td></tr>`; return; }
+  rows.innerHTML = list.map(r => {
+    const open = r.steamid === openSid;
+    return `<tr class="r${open ? " open" : ""}" data-sid="${esc(r.steamid)}"><td class="n">${r.place <= 3 ? MEDAL[r.place - 1] : r.place}</td>` +
+      `<td class="nick">${esc(r.nick || r.steamid)}</td><td class="v">${esc(fmt(cur, r.value))}</td></tr>` +
+      (open ? `<tr class="prof"><td colspan="3" id="prof">…</td></tr>` : "");
+  }).join("");
+  if (openSid && $("prof")) profile(openSid);
+}
+
+async function show() {
+  cur = CATS[cat.value].stats[sel.value];
+  openSid = null;
+  try { history.replaceState(null, "", "#" + cur.key); } catch (e) {}
   rows.innerHTML = '<tr><td class="empty">…</td></tr>';
   try {
-    const data = await (await fetch(TABS[i].url)).json();
-    if (!data.rows || !data.rows.length) { rows.innerHTML = '<tr><td class="empty">Пока пусто</td></tr>'; return; }
-    rows.innerHTML = data.rows.map((r, k) =>
-      `<tr><td class="n">${k + 1}</td><td>${esc(r.nick || r.steamid)}</td><td class="v">${esc(TABS[i].fmt ? TABS[i].fmt(r.value) : Math.round(r.value))}</td></tr>`).join("");
-  } catch (e) { rows.innerHTML = '<tr><td class="empty">Сервер статистики недоступен</td></tr>'; }
+    data = (await (await fetch(cur.url + "&limit=100")).json()).rows || [];
+    render();
+  } catch (e) { data = []; rows.innerHTML = '<tr><td class="empty">Сервер статистики недоступен</td></tr>'; }
 }
-TABS.forEach((t, i) => { const b = document.createElement("button"); b.textContent = t.label; b.onclick = () => show(i); tabs.appendChild(b); });
-show(0);
+
+// a player's whole page: every known stat, grouped like the menu
+async function profile(sid) {
+  try {
+    const p = await (await fetch("/api/v1/player/" + encodeURIComponent(sid))).json();
+    if (openSid !== sid || !$("prof")) return;
+    const s = p.stats || {};
+    const groups = CATS.map(c => {
+      const items = c.stats.map(st => {
+        const v = st.key.startsWith("items:") ? (p.items || {})[st.key.slice(6)] : s[st.key];
+        return v === undefined || v === null ? "" : `<div><span>${esc(st.label)}</span><b>${esc(fmt(st, v))}</b></div>`;
+      }).join("");
+      return items ? `<h4>${esc(c.label)}</h4><div class="grid">${items}</div>` : "";
+    }).join("");
+    const ch = (p.characters || []).map(c => PONIES[c] || c).join(", ");
+    $("prof").innerHTML = (groups || '<div class="empty">Пока ничего</div>') + (ch ? `<h4>Играл(а) за</h4><div>${esc(ch)}</div>` : "");
+  } catch (e) { if ($("prof")) $("prof").textContent = "Не получилось загрузить"; }
+}
+
+rows.addEventListener("click", e => {
+  const tr = e.target.closest("tr.r");
+  if (!tr) return;
+  openSid = openSid === tr.dataset.sid ? null : tr.dataset.sid;
+  render();
+});
+cat.innerHTML = CATS.map((c, i) => `<option value="${i}">${esc(c.label)}</option>`).join("");
+cat.onchange = () => { fillStats(cat.value); show(); };
+sel.onchange = show;
+q.oninput = render;
+
+// the last choice comes back from the address (#best_dance)
+const want = decodeURIComponent(location.hash.slice(1));
+const ci = Math.max(0, CATS.findIndex(c => c.stats.some(s => s.key === want)));
+cat.value = ci;
+fillStats(ci, want);
+show();
 </script>
 </body>
 </html>
