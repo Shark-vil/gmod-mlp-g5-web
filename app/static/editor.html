@@ -31,6 +31,17 @@
   .test canvas { width: min(1100px, 96vw); height: 300px; cursor: default; }
   .test .score { font-size: 34px; font-weight: 800; color: #ffd65a; }
   .test .hint { color: #c9b6ef; font-size: 13px; margin-top: 8px; }
+  .pub { margin-top: 8px; padding: 12px; }
+  .pub h3 { margin: 0 0 8px; font-size: 15px; }
+  .pub ol { margin: 6px 0 10px; padding-left: 20px; font-size: 14px; }
+  .pub li { margin: 4px 0; }
+  .pub code { background: var(--row); border-radius: 4px; padding: 1px 5px; font-size: 12px; overflow-wrap: anywhere; }
+  .pub .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .pub .row input { flex: 1 1 320px; }
+  .pub a { color: var(--text); }
+  .pub .ok { color: #20683a; } .pub .bad { color: #b3471f; }
+  @media (prefers-color-scheme: dark) { .pub .ok { color: #9fe0b5; } .pub .bad { color: #ffb08a; } }
+  .locked .tools button:not(#play):not(#test):not(#pplay), .locked #title, .locked #artist, .locked #pstart, .locked #plen, .locked #phere { pointer-events: none; opacity: .45; }
   @media (max-width: 760px) { .head, .side { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -85,6 +96,7 @@
         <div id="warns"></div>
       </div>
     </div>
+    <div class="card pub" id="pub"></div>
   </div>
 </main>
 <script src="/static/site.js"></script>
@@ -112,7 +124,7 @@ async function load() {
   if (r.status === 404) { $("out").textContent = "Песня не найдена (или это не ваша песня)."; return; }
   song = await r.json();
   if (song.analysis === "queued" || song.analysis === "running") { $("out").textContent = "Ноты расставляются автоматически… (страница обновится сама)"; setTimeout(load, 2500); return; }
-  if (song.status !== "draft") { $("out").textContent = "Эту песню уже отправили на проверку — править можно только черновик."; return; }
+  if (!["draft", "built", "pending"].includes(song.status)) { $("out").textContent = "Эта песня уже прошла проверку — её больше нельзя править."; return; }
   if (!song.has_full) { $("out").textContent = "Полного трека уже нет на сайте — редактировать нельзя."; return; }
   $("out").textContent = "Загружается звук…";
   const audio = await (await fetch("/api/v1/songs/" + UUID + "/full.ogg")).arrayBuffer();
@@ -126,7 +138,72 @@ async function load() {
   $("pstart").value = song.preview_start || 0; $("plen").value = String(Math.round(song.preview_len || 20));
   $("facts").textContent = `${mmss(song.len)} · ${song.bpm || "?"} BPM`;
   $("out").hidden = true; $("ed").hidden = false;
-  resize(); checkWarnings(); setStatus("сохранено");
+  resize(); checkWarnings(); setStatus(song.status === "draft" ? "сохранено" : "только просмотр");
+  $("ed").classList.toggle("locked", song.status !== "draft");
+  publishPanel();
+}
+
+// ------------------------------------------------------------------ publishing: build the mod -> Workshop -> the audit
+function el(tag, text, cls) { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; }
+function publishPanel() {
+  const box = $("pub"); box.textContent = "";
+  box.appendChild(el("h3", "Публикация"));
+  if (song.status === "draft") {
+    box.appendChild(el("p", "Когда ноты готовы, соберите мод песни: сайт упакует звук и ноты, а вы выложите его в Мастерскую Steam. После сборки править нельзя (можно вернуться к правке, тогда мод придётся собрать заново)."));
+    const b = el("button", "Собрать мод", "btn main");
+    b.onclick = async () => {
+      if (dirty && !(await save())) return;
+      if (problems().some(p => p.hard)) { setStatus("исправьте отмеченные ⛔ ноты"); return; }
+      b.disabled = true;
+      const r = await fetch("/api/v1/songs/" + UUID + "/build", { method: "POST" });
+      if (!r.ok) { b.disabled = false; const j = await r.json().catch(() => ({})); setStatus("не собралось: " + (j.detail || r.status)); return; }
+      song = await (await fetch("/api/v1/songs/" + UUID)).json();
+      $("ed").classList.add("locked"); setStatus("только просмотр"); publishPanel();
+    };
+    box.appendChild(b);
+    return;
+  }
+  if (song.status === "built") {
+    const ol = el("ol");
+    const li1 = el("li"); li1.append("Скачайте мод: ");
+    const a = el("a", "мод песни (.zip)"); a.href = "/api/v1/songs/" + UUID + "/mod.zip"; li1.appendChild(a); ol.appendChild(li1);
+    ol.appendChild(el("li", "Проверьте у себя: распакуйте папку из архива в garrysmod/addons/ — песня появится в голосовании в лобби танца."));
+    const li3 = el("li"); li3.append("Выложите в Мастерскую (папка garrysmod/bin): ");
+    li3.appendChild(el("code", 'gmad.exe create -folder "<папка>" -out "<папка>.gma"')); li3.append(" и ");
+    li3.appendChild(el("code", 'gmpublish.exe create -addon "<папка>.gma" -icon "<папка>/icon.jpg"')); li3.append(" (подробно — в README.txt в архиве).");
+    ol.appendChild(li3);
+    ol.appendChild(el("li", "Вставьте ссылку на мод ниже и отправьте на проверку. Не меняйте файлы мода — игра сверяет их с сайтом."));
+    box.appendChild(ol);
+    const row = el("div", null, "row");
+    const inp = el("input"); inp.placeholder = "https://steamcommunity.com/sharedfiles/filedetails/?id=…"; inp.setAttribute("aria-label", "Ссылка на мод в Мастерской");
+    const send = el("button", "Отправить на проверку", "btn main");
+    const back = el("button", "Вернуться к правке", "btn");
+    const msg = el("div", "", "");
+    send.onclick = async () => {
+      send.disabled = true; msg.className = ""; msg.textContent = "Проверяем мод в Steam…";
+      const r = await fetch("/api/v1/songs/" + UUID + "/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workshop: inp.value }) });
+      const j = await r.json().catch(() => ({}));
+      send.disabled = false;
+      if (!r.ok) {
+        const why = { 403: "Этот мод выложен другим аккаунтом Steam (или песня ещё не собрана).", 404: "Steam не знает такой мод — проверьте ссылку; скрытый мод тоже не виден.", 409: "Этот мод уже привязан к другой песне." }[r.status];
+        msg.className = "bad"; msg.textContent = why || ("Не получилось: " + (j.detail || r.status)); return;
+      }
+      song = await (await fetch("/api/v1/songs/" + UUID)).json(); publishPanel();
+    };
+    back.onclick = async () => {
+      if (!confirm("Вернуться к правке? Собранный мод перестанет подходить — его нужно будет собрать и выложить заново.")) return;
+      await fetch("/api/v1/songs/" + UUID + "/unbuild", { method: "POST" });
+      song = await (await fetch("/api/v1/songs/" + UUID)).json();
+      $("ed").classList.remove("locked"); setStatus("сохранено"); publishPanel();
+    };
+    row.append(inp, send, back); box.appendChild(row); box.appendChild(msg);
+    return;
+  }
+  if (song.status === "pending") {
+    const p = el("p", "Песня на проверке. После одобрения она появится в общем списке песен и в игре. ", "ok");
+    if (song.workshop) { const a = el("a", "Мод в Мастерской"); a.href = song.workshop; a.target = "_blank"; a.rel = "noopener"; p.appendChild(a); }
+    box.appendChild(p);
+  }
 }
 
 // the waveform: max |sample| per 10 ms
@@ -241,6 +318,7 @@ function noteAt(x, y) {
   return best;
 }
 let drag = null;
+const locked = () => song && song.status !== "draft";
 cv.addEventListener("pointerdown", e => {
   const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
   if (y < cv.clientHeight * WAVE_H) {           // the waveform: seek
@@ -248,6 +326,7 @@ cv.addEventListener("pointerdown", e => {
     if (playing) play(t); else { window._pos = t; draw(); }
     return;
   }
+  if (locked()) return;
   const i = noteAt(x, y);
   if (i >= 0) { sel = i; snapshot(); drag = { i, moved: false }; cv.setPointerCapture(e.pointerId); draw(); return; }
   snapshot();
@@ -275,9 +354,9 @@ cv.addEventListener("wheel", e => {
 $("scroll").oninput = () => { const w = cv.clientWidth / zoom; setView((song.len - w) * $("scroll").value / 1000); draw(); };
 $("zin").onclick = () => { const c = view + cv.clientWidth / zoom / 2; zoom = Math.min(800, zoom * 1.4); setView(c - cv.clientWidth / zoom / 2); draw(); };
 $("zout").onclick = () => { const c = view + cv.clientWidth / zoom / 2; zoom = Math.max(20, zoom / 1.4); setView(c - cv.clientWidth / zoom / 2); draw(); };
-function toggleHold() { if (sel < 0) return; snapshot(); notes[sel].hold = !notes[sel].hold; mark(); }
-function delNote() { if (sel < 0) return; snapshot(); notes.splice(sel, 1); sel = Math.min(sel, notes.length - 1); mark(); }
-function doUndo() { if (!undo.length) return; notes = JSON.parse(undo.pop()); sel = -1; mark(); }
+function toggleHold() { if (sel < 0 || locked()) return; snapshot(); notes[sel].hold = !notes[sel].hold; mark(); }
+function delNote() { if (sel < 0 || locked()) return; snapshot(); notes.splice(sel, 1); sel = Math.min(sel, notes.length - 1); mark(); }
+function doUndo() { if (!undo.length || locked()) return; notes = JSON.parse(undo.pop()); sel = -1; mark(); }
 $("hold").onclick = toggleHold; $("del").onclick = delNote; $("undo").onclick = doUndo;
 $("play").onclick = () => playing ? stop() : play(now());
 document.addEventListener("keydown", e => {

@@ -41,6 +41,6 @@ footer { text-align: center; color: var(--muted); font-size: 12px; padding: 14px
 nav.links { display: flex; gap: 14px; font-size: 13px; margin: -4px 0 10px; }
 nav.links a { color: var(--muted); text-decoration: none; }
 nav.links a.on, nav.links a:hover { color: var(--text); }
-.btn { border: 0; border-radius: 999px; padding: 7px 14px; font: inherit; cursor: pointer; background: var(--row); color: var(--text); }
+.btn { display: inline-block; text-decoration: none; border: 0; border-radius: 999px; padding: 7px 14px; font: inherit; cursor: pointer; background: var(--row); color: var(--text); }
 .btn.main { background: var(--pink); color: #fff; }
 .btn:disabled { opacity: .5; cursor: default; }

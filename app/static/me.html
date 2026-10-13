@@ -60,7 +60,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const { esc, renderProfile } = window.MLPStats;
-const STATUS = { draft: ["черновик", ""], pending: ["на проверке", ""], approved: ["одобрена", "ok"], rejected: ["отклонена", "no"] };
+const STATUS = { draft: ["черновик", ""], built: ["мод собран", ""], pending: ["на проверке", ""], approved: ["одобрена", "ok"], rejected: ["отклонена", "no"] };
 const ANALYSIS = { queued: "ноты расставляются…", running: "ноты расставляются…", failed: "не удалось расставить ноты" };
 
 function mmss(v) { v = Math.round(v || 0); return Math.floor(v / 60) + ":" + String(v % 60).padStart(2, "0"); }
