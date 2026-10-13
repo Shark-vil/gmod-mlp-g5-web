@@ -33,6 +33,7 @@ GMod не пускает HTTP-запросы на локальные адрес�
 | GET | `/api/v1/leaderboard?stat=stars&limit=20` | таблица по статистике |
 | GET | `/api/v1/items/leaderboard?kind=vanity` | таблица по коллекции (`vanity`, `spell`, `character`) |
 | GET | `/api/v1/player/{steamid64}` | профиль игрока |
+| GET | `/api/v1/unlocks/{steamid64}` | открытые предметы и заклинания игрока со всех серверов (заголовок `X-Server-Key`; читают сами игровые серверы) |
 | GET | `/api/v1/stats/keys` | какие статистики есть |
 | GET | `/health` | проверка живости |
 

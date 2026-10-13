@@ -33,6 +33,9 @@ MAX_PLAYERS = 128
 MAX_STATS = 96
 KEY_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 SID_RE = re.compile(r"^\d{1,20}$")
+ITEM_RE = re.compile(r"^[A-Za-z0-9_]{1,48}$")
+UNLOCK_KINDS = ("vanity", "spell")
+MAX_UNLOCKS = 128
 # fastest believable growth per minute since the last report (plus a small allowance)
 GROWTH = {"stars": (150, 300), "vanity": (10, 40), "playtime": (70, 600)}
 GROWTH_DEFAULT = (20, 50)
@@ -58,6 +61,7 @@ def init():
             CREATE TABLE IF NOT EXISTS server_stats ( server TEXT, steamid TEXT, key TEXT, value REAL, updated INTEGER,
                 PRIMARY KEY ( server, steamid, key ) );
             CREATE TABLE IF NOT EXISTS server_items ( server TEXT, steamid TEXT, kind TEXT, count INTEGER, PRIMARY KEY ( server, steamid, kind ) );
+            CREATE TABLE IF NOT EXISTS unlocks ( steamid TEXT, kind TEXT, item TEXT, server TEXT, ts INTEGER, PRIMARY KEY ( steamid, kind, item ) );
             CREATE TABLE IF NOT EXISTS characters ( steamid TEXT, character TEXT, PRIMARY KEY ( steamid, character ) );
             CREATE TABLE IF NOT EXISTS flags ( ts INTEGER, server TEXT, steamid TEXT, key TEXT, old REAL, new REAL, kept REAL );
             CREATE INDEX IF NOT EXISTS idx_stats_key ON server_stats ( key );
@@ -159,12 +163,43 @@ async def report(request: Request, x_server_key: str = Header(default="")):
                 count = num(count)
                 if count is not None and KEY_RE.match(str(kind)):
                     con.execute("REPLACE INTO server_items ( server, steamid, kind, count ) VALUES ( ?, ?, ?, ? )", (server, sid, str(kind), int(count)))
+            # unlocked collectibles / spells: kept forever, shared with every server of this service
+            unlocked = p.get("unlocked") if isinstance(p.get("unlocked"), dict) else {}
+            for kind in UNLOCK_KINDS:
+                ids = unlocked.get(kind)
+                if not isinstance(ids, list):
+                    continue
+                for item in ids[:MAX_UNLOCKS]:
+                    if isinstance(item, str) and ITEM_RE.match(item):
+                        con.execute("INSERT OR IGNORE INTO unlocks ( steamid, kind, item, server, ts ) VALUES ( ?, ?, ?, ?, ? )", (sid, kind, item, server, now))
             chars = p.get("characters") if isinstance(p.get("characters"), list) else []
             for c in chars[:16]:
                 if KEY_RE.match(str(c)):
                     con.execute("INSERT OR IGNORE INTO characters ( steamid, character ) VALUES ( ?, ? )", (sid, str(c)))
             accepted += 1
     return {"ok": True, "server": server, "players": accepted, "clamped": clamped}
+
+
+def server_of(key):
+    if key in SERVER_KEYS:
+        return SERVER_KEYS[key]
+    if OPEN and key:
+        return "open"
+    raise HTTPException(401, "unknown server key")
+
+
+@app.get("/api/v1/unlocks/{steamid}")
+def unlocks(steamid: str, x_server_key: str = Header(default="")):
+    """What a player unlocked on any game server of this service (read by the servers themselves)."""
+    server_of(x_server_key)
+    if not SID_RE.match(steamid):
+        raise HTTPException(400, "bad steamid")
+    out = {k: [] for k in UNLOCK_KINDS}
+    with db() as con:
+        for r in con.execute("SELECT kind, item FROM unlocks WHERE steamid = ? ORDER BY ts", (steamid,)):
+            if r["kind"] in out:
+                out[r["kind"]].append(r["item"])
+    return {"steamid": steamid, **out}
 
 
 @app.get("/api/v1/leaderboard")
