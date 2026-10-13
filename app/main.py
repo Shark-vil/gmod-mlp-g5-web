@@ -16,12 +16,20 @@ Anti-cheat is deliberately light — it only stops the obvious:
 - impossible race times are ignored
 - unlocks must make sense: "bits" items need the stars, a spell needs the one of the tier below, only so
   many new unlocks per player a day
+- a fresh install starts from a small allowance (one report can't bring a day's worth), and unlocks are
+  tied to the play time the player has (a couple per ten minutes)
+- POSTs need a one-time nonce (GET /api/v1/nonce, lives a few seconds, for one purpose and one install) and a
+  signature SHA256( nonce .. body .. salt ) - the salt is in the mod's code, so this only makes hand-made
+  requests awkward (no "Try it out" cheating, no replays); /api/docs is off unless MLP_DOCS=1
 - everything clamped / refused is logged in `flags`; admins (MLP_ADMIN_TOKEN) can list the flags and wipe a
   player or an install
 Optional MLP_SERVER_KEYS ("name:key,…") marks trusted servers (named, no per-IP install limit).
 """
+import hashlib
+import hmac
 import json
 import math
+import secrets
 import os
 import re
 import sqlite3
@@ -44,6 +52,15 @@ LOOKUP_PER_MIN = int(os.environ.get("MLP_LOOKUP_PER_MIN", "60"))     # unlock lo
 IP_RATE_PER_MIN = int(os.environ.get("MLP_IP_RATE_PER_MIN", "300"))  # any requests per IP: flood guard only
 NEW_INSTALLS_PER_IP_DAY = int(os.environ.get("MLP_NEW_INSTALLS_PER_IP_DAY", "20"))  # hosters run many servers on one IP
 MAX_LOOKUP = 128
+DOCS = os.environ.get("MLP_DOCS", "0") == "1"
+# must match MLP.ApiSalt in the mod (lua/mlp_g5_lib/sv_stats_api.lua)
+SIGN_SALT = os.environ.get("MLP_SIGN_SALT", "mlp-g5:maretime-bay:9f3c1a7e")
+NONCE_TTL = float(os.environ.get("MLP_NONCE_TTL", "5"))  # the mod sends the POST right after getting it
+NONCE_PURPOSES = ("report", "unlocks")
+MAX_NONCES_PER_INSTALL = 8
+# unlocks a player may have for their play time: a few to start with, then one per this many minutes
+UNLOCK_FREE = 3
+UNLOCK_MINUTES = 5
 
 MAX_PLAYERS = 128
 MAX_STATS = 96
@@ -55,7 +72,8 @@ UNLOCK_KINDS = ("vanity", "spell")
 MAX_UNLOCKS = 128
 
 # fastest believable growth per minute since this install's last report (plus a small allowance)
-GROWTH = {"stars": (150, 300), "vanity": (10, 40), "playtime": (70, 600)}
+# (per minute, allowance: also where a fresh install starts from)
+GROWTH = {"stars": (150, 300), "vanity": (10, 40), "playtime": (70, 3600)}
 GROWTH_DEFAULT = (20, 50)
 # the most a player may gain per day over all installs together (by key, then by prefix)
 DAILY = {"stars": 2500, "playtime": 86400, "vanity": 40, "spells": 6, "botwins": 300}
@@ -80,9 +98,11 @@ SPELL_TIER = {"telekinesis": 2, "shield": 3, "bolt": 3, "levitate": 4, "teleport
 # a long-time player catching up gets the rest over the next reports (the mod resends everything)
 NEW_UNLOCKS_PER_DAY = {"vanity": 16, "spell": 5}
 
-app = FastAPI(title="MLP Maretime Bay stats", docs_url="/api/docs", openapi_url="/api/openapi.json")
+app = FastAPI(title="MLP Maretime Bay stats", docs_url="/api/docs" if DOCS else None, redoc_url=None,
+              openapi_url="/api/openapi.json" if DOCS else None)
 lock = threading.Lock()
 hits = defaultdict(deque)
+nonces = {}  # nonce -> (install, purpose, expires); one process (see Dockerfile), lost on restart: fine
 
 
 def db():
@@ -181,22 +201,64 @@ def spend(con, sid, key, day, want):
     return grant
 
 
+def prune_nonces(now):
+    for n in [n for n, v in nonces.items() if v[2] < now]:
+        del nonces[n]
+
+
+@app.get("/api/v1/nonce")
+def nonce(request: Request, purpose: str = "report", x_install_id: str = Header(default="")):
+    """A one-time token for the next POST of this install (MLP_NONCE_TTL seconds)."""
+    check_ip(request)
+    install = x_install_id.lower()
+    if not INSTALL_RE.match(install):
+        raise HTTPException(400, "X-Install-Id missing")
+    if purpose not in NONCE_PURPOSES:
+        raise HTTPException(400, "bad purpose")
+    if not rate_ok("nonce:" + install, RATE_PER_MIN + LOOKUP_PER_MIN):
+        raise HTTPException(429, "too many nonces")
+    now = time.time()
+    with lock:
+        prune_nonces(now)
+        mine = [n for n, v in nonces.items() if v[0] == install]
+        if len(mine) >= MAX_NONCES_PER_INSTALL:
+            for n in sorted(mine, key=lambda n: nonces[n][2])[: len(mine) - MAX_NONCES_PER_INSTALL + 1]:
+                del nonces[n]
+        n = secrets.token_hex(16)
+        nonces[n] = (install, purpose, now + NONCE_TTL)
+    return {"nonce": n, "ttl": NONCE_TTL}
+
+
+def check_signed(install, purpose, x_nonce, x_sign, body):
+    """The nonce must be fresh, unused, for this install and purpose; the signature must match the body."""
+    with lock:
+        v = nonces.pop(x_nonce or "", None)
+    if not v or v[0] != install or v[1] != purpose or v[2] < time.time():
+        raise HTTPException(409, "nonce")
+    want = hashlib.sha256(x_nonce.encode() + body + SIGN_SALT.encode()).hexdigest()
+    if not hmac.compare_digest(want, (x_sign or "").lower()):
+        raise HTTPException(403, "bad signature")
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "time": int(time.time())}
 
 
 @app.post("/api/v1/report")
-async def report(request: Request, x_install_id: str = Header(default=""), x_server_key: str = Header(default="")):
+async def report(request: Request, x_install_id: str = Header(default=""), x_server_key: str = Header(default=""),
+                 x_nonce: str = Header(default=""), x_sign: str = Header(default="")):
     ip = check_ip(request)
     trusted = x_server_key in SERVER_KEYS
     install = x_install_id.lower()
-    if not trusted and not INSTALL_RE.match(install):
+    if not INSTALL_RE.match(install):
         raise HTTPException(400, "X-Install-Id missing")
     if not rate_ok("inst:" + (x_server_key if trusted else install), RATE_PER_MIN):
         raise HTTPException(429, "too many reports")
+    raw = await request.body()
+    check_signed(install, "report", x_nonce, x_sign, raw)
     try:
-        body = json.loads(await request.body())
+        body = json.loads(raw)
     except Exception:
         raise HTTPException(400, "bad json")
     if not isinstance(body, dict) or not isinstance(body.get("players"), list):
@@ -253,10 +315,10 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
                 elif fn == "SUM":
                     old = row["value"] if row else 0.0
                     if value > old:
-                        limit = value
-                        if row:  # this install: not faster than believable since its last report
-                            per_min, allowance = GROWTH.get(key, GROWTH_DEFAULT)
-                            limit = old + allowance + per_min * max(0.0, (now - row["updated"]) / 60)
+                        # this install: a fresh one starts from the allowance, then not faster than believable
+                        # since its last report (a long-time player catches up over a few reports)
+                        per_min, allowance = GROWTH.get(key, GROWTH_DEFAULT)
+                        limit = old + allowance + (per_min * max(0.0, (now - row["updated"]) / 60) if row else 0)
                         # the player over all installs: only so much a day
                         grant = spend(con, sid, key, day, min(value, limit) - old)
                         kept = old + grant
@@ -274,6 +336,8 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
             if unlocked:
                 have = {(r["kind"], r["item"]) for r in con.execute("SELECT kind, item FROM unlocks WHERE steamid = ?", (sid,))}
                 stars = con.execute("SELECT COALESCE( SUM( value ), 0 ) AS s FROM server_stats WHERE steamid = ? AND key = 'stars'", (sid,)).fetchone()["s"]
+                played = con.execute("SELECT COALESCE( SUM( value ), 0 ) AS s FROM server_stats WHERE steamid = ? AND key = 'playtime'", (sid,)).fetchone()["s"]
+                allowed = UNLOCK_FREE + int(played // 60 // UNLOCK_MINUTES)
                 today = con.execute("SELECT kind, COUNT(*) AS n FROM unlocks WHERE steamid = ? AND ts >= ? GROUP BY kind", (sid, day * 86400)).fetchall()
                 new_today = {r["kind"]: r["n"] for r in today}
                 spells = {i for k, i in have if k == "spell"} | {s for s in (unlocked.get("spell") or []) if isinstance(s, str)}
@@ -303,6 +367,8 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
                                 why = "unlock_tier"
                         if not why and new_today.get(kind, 0) >= NEW_UNLOCKS_PER_DAY[kind]:
                             why = "unlock_daily"
+                        if not why and len(have) >= allowed:
+                            why = "unlock_playtime"
                         if why:
                             flag(con, now, server, sid, why + ":" + item, 0, 1, 0)
                             clamped += 1
@@ -345,12 +411,15 @@ def unlocks(steamid: str, request: Request, x_install_id: str = Header(default="
 
 
 @app.post("/api/v1/unlocks")
-async def unlocks_batch(request: Request, x_install_id: str = Header(default="")):
+async def unlocks_batch(request: Request, x_install_id: str = Header(default=""), x_nonce: str = Header(default=""),
+                        x_sign: str = Header(default="")):
     """The same for a whole server at once: { "steamids": [ … up to 128 ] } -> { "players": [ { "steamid", "vanity", "spell" } ] }
     (a list, not keyed by SteamID: GMod's JSON reader turns numeric keys into lossy numbers)."""
     lookup_ok(request, x_install_id)
+    raw = await request.body()
+    check_signed(x_install_id.lower(), "unlocks", x_nonce, x_sign, raw)
     try:
-        body = json.loads(await request.body())
+        body = json.loads(raw)
     except Exception:
         raise HTTPException(400, "bad json")
     ids = body.get("steamids") if isinstance(body, dict) else None
