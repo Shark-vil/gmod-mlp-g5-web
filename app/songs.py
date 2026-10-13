@@ -12,6 +12,7 @@ preview, the notes and the facts stay.
   GET    /api/v1/songs/{uuid}           facts + notes (+ beat grid for the author / admins)
   GET    /api/v1/songs/{uuid}/full.ogg  the full track (author / admins, while draft / pending)
   GET    /api/v1/songs/{uuid}/preview.ogg
+  PUT    /api/v1/songs/{uuid}/chart     the editor's save: notes, holds, preview fragment, title (author, draft)
   POST   /api/v1/songs/{uuid}/auto      redo the automatic chart (author, draft)
   DELETE /api/v1/songs/{uuid}           author (draft) or admin
 """
@@ -35,7 +36,7 @@ except ImportError:
     import chart_auto
 
 MAX_MB = float(os.environ.get("MLP_SONG_MAX_MB", "15"))
-MAX_SEC = float(os.environ.get("MLP_SONG_MAX_SEC", "360"))
+MAX_SEC = float(os.environ.get("MLP_SONG_MAX_SEC", "300"))
 MIN_SEC = 20
 MAX_DRAFTS = int(os.environ.get("MLP_SONG_MAX_DRAFTS", "5"))
 UPLOADS_PER_HOUR = int(os.environ.get("MLP_SONG_UPLOADS_PER_HOUR", "10"))
@@ -242,6 +243,50 @@ def preview_audio(u: str, request: Request):
     if (r["status"] != "approved" and not _can_edit(request, r)) or not os.path.exists(path):
         raise HTTPException(404, "no preview")
     return FileResponse(path, media_type="audio/ogg")
+
+
+HOLD_LEN = 1.94   # a hold lasts 4 of the game's beats (sh_mg_dance.lua D.HOLD)
+MIN_NOTE_GAP = 0.25  # closer, one press would count for two notes (the GOOD window is ±0.2 s)
+
+
+@router.put("/api/v1/songs/{u}/chart")
+async def save_chart(u: str, request: Request):
+    """the editor's save: { t: [ s… ], large: [ i… ] (1-based), preview_start, preview_len, title?, artist? }"""
+    r = _row(u)
+    if not _can_edit(request, r) or r["status"] != "draft":
+        raise HTTPException(403, "only the author's draft")
+    try:
+        body = await request.json()
+        times = [round(float(x), 3) for x in body.get("t", [])]
+        large = {int(i) for i in body.get("large", [])}
+    except Exception:
+        raise HTTPException(400, "bad chart")
+    length = r["len"] or 0
+    if not times or len(times) > 3000:
+        raise HTTPException(400, "1-3000 notes")
+    order = sorted(range(len(times)), key=lambda i: times[i])
+    large = {order.index(i - 1) + 1 for i in large if 1 <= i <= len(times)}  # the holds follow their notes when sorted
+    times = [times[i] for i in order]
+    for i, t in enumerate(times):
+        if t < 0 or t > length:
+            raise HTTPException(400, f"note {i + 1} is outside the song")
+        if i and t - times[i - 1] < MIN_NOTE_GAP:
+            raise HTTPException(400, f"notes {i} and {i + 1} are closer than {MIN_NOTE_GAP} s")
+        if (i + 1) in large and i + 1 < len(times) and times[i + 1] - t < HOLD_LEN + 0.05:
+            raise HTTPException(400, f"note {i + 2} starts inside the hold {i + 1}")
+    ps = round(float(body.get("preview_start", r["preview_start"] or 0)), 2)
+    pl = round(float(body.get("preview_len", r["preview_len"] or PREVIEW_LEN)), 2)
+    if not 10 <= pl <= 30 or ps < 0 or ps + pl > length + 0.01:
+        raise HTTPException(400, "the preview must be 10-30 s inside the song")
+    title = str(body.get("title", r["title"]))[:80].strip() or r["title"]
+    artist = str(body.get("artist", r["artist"] or ""))[:80].strip()
+    chart = {"t": times, "large": sorted(large)}
+    if (ps, pl) != (r["preview_start"], r["preview_len"]) and os.path.exists(os.path.join(song_dir(u), "full.ogg")):
+        make_preview(u, ps, pl)
+    with _db() as con:
+        con.execute("UPDATE songs SET chart = ?, preview_start = ?, preview_len = ?, title = ?, artist = ?, updated = ? WHERE uuid = ?",
+                    (json.dumps(chart), ps, pl, title, artist, int(time.time()), u))
+    return {"ok": True, "chart": chart}
 
 
 @router.post("/api/v1/songs/{u}/auto")

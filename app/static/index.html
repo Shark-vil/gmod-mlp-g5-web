@@ -4,52 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Maretime Bay — рекорды</title>
-<style>
-  :root { --bg: #fff6fb; --card: #ffffff; --text: #56308a; --muted: #9a7cc0; --pink: #ff78be; --lilac: #a882ff; --row: #ffecf7; --line: #f3d9ea;
-          --mark: #d6469a; --mark-hover: #ff78be; --grid: #ecd6e6; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #1a1224; --card: #261b36; --text: #f3e9ff; --muted: #b9a2d8; --row: #2f2242; --line: #3a2a52;
-          --mark: #d6469a; --mark-hover: #ff78be; --grid: #4a3866; } }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.4 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-  .bar { height: 4px; background: linear-gradient(90deg, var(--pink), var(--lilac)); }
-  main { max-width: 760px; margin: 0 auto; padding: 12px 16px 16px; }
-  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-  .top b { font-size: 17px; }
-  .top span { color: var(--muted); font-size: 13px; }
-  .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
-  select, input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--card); color: var(--text); font: inherit; }
-  select:focus, input:focus { outline: 2px solid var(--pink); outline-offset: -1px; }
-  @media (max-width: 560px) { .controls { grid-template-columns: 1fr 1fr; } .controls input { grid-column: 1 / -1; } }
-  .card { background: var(--card); border-radius: 14px; padding: 4px; box-shadow: 0 3px 14px rgba(120, 70, 200, .10); }
-  table { width: 100%; border-collapse: collapse; }
-  td { padding: 8px 10px; }
-  tr.r { cursor: pointer; }
-  tr.r:hover td, tr.open td { background: var(--row); }
-  td.n { width: 44px; color: var(--muted); text-align: center; }
-  td.nick { overflow-wrap: anywhere; }
-  td.v { text-align: right; font-weight: 700; white-space: nowrap; }
-  .empty { padding: 20px; text-align: center; color: var(--muted); }
-  .prof td { padding: 4px 10px 12px; background: var(--row); }
-  .prof h4 { margin: 8px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 14px; }
-  .grid div { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
-  .grid div b { white-space: nowrap; }
-  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 2px; }
-  @media (max-width: 560px) { .charts { grid-template-columns: 1fr; } }
-  .chart { position: relative; background: var(--card); border-radius: 10px; padding: 8px 8px 4px; }
-  .chart .t { font-size: 13px; margin: 0 0 4px 2px; }
-  .chart svg { display: block; width: 100%; height: 130px; overflow: visible; }
-  .chart text { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
-  .chart .tip { position: absolute; pointer-events: none; background: var(--row); color: var(--text); border-radius: 8px; padding: 4px 8px;
-                font-size: 12px; white-space: nowrap; transform: translate(-50%, -100%); display: none; box-shadow: 0 2px 8px rgba(80, 40, 140, .18); }
-  .chart .tip b { display: block; font-size: 14px; }
-  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 14px; }
-</style>
+<link rel="stylesheet" href="/static/site.css">
 </head>
 <body>
 <div class="bar"></div>
 <main>
   <div class="top"><b>Maretime Bay · рекорды</b><span id="account"></span></div>
+  <nav class="links"><a href="/" class="on">Рекорды</a><a href="/me">Моя статистика</a></nav>
   <div class="controls">
     <select id="cat" aria-label="Категория"></select>
     <select id="stat" aria-label="Показатель"></select>
@@ -59,39 +20,14 @@
 </main>
 <footer>Всё открывается только игрой. Никакого доната. Нажмите на игрока — его статистика.</footer>
 <script src="/static/site.js"></script>
+<script src="/static/stats.js"></script>
 <script>
-const hours = v => (v / 3600).toFixed(1) + " ч";
-const secs = v => { const m = Math.floor(v / 60), s = (v - m * 60).toFixed(2).padStart(5, "0"); return m + ":" + s; };
-const stat = (key, label, fmt) => ({ key, label, fmt, url: "/api/v1/leaderboard?stat=" + key });
-const CATS = [
-  { label: "Общее", stats: [
-    stat("stars", "Звёзды за всё время"),
-    { key: "items:vanity", label: "Коллекция", url: "/api/v1/items/leaderboard?kind=vanity" },
-    { key: "items:spell", label: "Заклинания", url: "/api/v1/items/leaderboard?kind=spell" },
-    stat("playtime", "Время в игре", hours),
-  ] },
-  { label: "Танец", stats: [
-    stat("best_dance", "Лучший счёт"), stat("wins_dance", "Победы"), stat("medal_dance_gold", "Золотые медали"), stat("games_dance", "Сыграно"),
-  ] },
-  { label: "Гонка в небе", stats: [ stat("time_skyrace", "Лучшее время", secs), stat("wins_skyrace", "Победы"), stat("games_skyrace", "Сыграно") ] },
-  { label: "Гонка на роликах", stats: [ stat("time_groundrace", "Лучшее время", secs), stat("wins_groundrace", "Победы"), stat("games_groundrace", "Сыграно") ] },
-  { label: "Таран", stats: [ stat("best_rampage", "Лучший счёт"), stat("wins_rampage", "Победы"), stat("rammed_npcs", "Сбито пони-тараном"), stat("games_rampage", "Сыграно") ] },
-  { label: "Против игроков", stats: [
-    stat("pvpwins", "Победы, всего"), stat("pvpwins_dance", "Победы в танце"), stat("pvpwins_skyrace", "Победы в небе"), stat("pvpwins_groundrace", "Победы на роликах"), stat("pvpwins_rampage", "Победы в таране"),
-  ] },
-  { label: "Против ботов", stats: [
-    stat("botwins", "Победы, всего"), stat("botwins_master", "Над мастером"), stat("botwins_skilled", "Над опытным"),
-    stat("botwins_casual", "Над любителем"), stat("botwins_rookie", "Над новичком"),
-  ] },
-];
-const PONIES = { sunny: "Санни", izzy: "Иззи", hitch: "Хитч", pipp: "Пипп", zipp: "Зипп" };
 const MEDAL = ["🥇", "🥈", "🥉"];
 const $ = id => document.getElementById(id);
 const cat = $("cat"), sel = $("stat"), q = $("q"), rows = $("rows");
 let data = [], cur = null, openSid = null;
 
-function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
-function fmt(st, v) { return st.fmt ? st.fmt(v) : Math.round(v).toLocaleString("ru-RU"); }
+const { CATS, esc, fmt, renderProfile } = window.MLPStats;
 
 function fillStats(ci, key) {
   sel.innerHTML = CATS[ci].stats.map((s, i) => `<option value="${i}">${esc(s.label)}</option>`).join("");
@@ -111,6 +47,11 @@ function render() {
   if (openSid && $("prof")) profile(openSid);
 }
 
+async function profile(sid) {
+  const box = $("prof");
+  await renderProfile(sid, box, () => openSid === sid && $("prof") === box);
+}
+
 async function show() {
   cur = CATS[cat.value].stats[sel.value];
   openSid = null;
@@ -122,145 +63,6 @@ async function show() {
   } catch (e) { data = []; rows.innerHTML = '<tr><td class="empty">Сервер статистики недоступен</td></tr>'; }
 }
 
-
-// ---- charts in a profile: play time per day (columns) and magic bits (line), the last 30 days.
-// One series each (the title names it, no legend); hover / focus shows the day's value.
-const DAYS = 30;
-function lastDays() {
-  const out = [];
-  for (let i = DAYS - 1; i >= 0; i--) out.push(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
-  return out;
-}
-// snapshots [[day, total]] -> the total at the end of each day (carried forward)
-function carry(rows, days) {
-  const m = new Map(rows);
-  let last = null;
-  const before = rows.filter(r => r[0] < days[0]);
-  if (before.length) last = before[before.length - 1][1];
-  return days.map(d => { if (m.has(d)) last = m.get(d); return last; });
-}
-function niceTop(v) {
-  if (v <= 0) return 1;
-  const e = Math.pow(10, Math.floor(Math.log10(v)));
-  for (const k of [1, 2, 2.5, 5, 10]) if (v <= k * e) return k * e;
-  return 10 * e;
-}
-const SVGNS = "http://www.w3.org/2000/svg";
-function el(tag, attrs, parent) {
-  const n = document.createElementNS(SVGNS, tag);
-  for (const k in attrs) n.setAttribute(k, attrs[k]);
-  if (parent) parent.appendChild(n);
-  return n;
-}
-function drawChart(box, title, kind, values, days, fmtV) {
-  const card = document.createElement("div"); card.className = "chart";
-  const t = document.createElement("div"); t.className = "t"; t.textContent = title; card.appendChild(t);
-  const W = 320, H = 130, L = 34, R = 8, T = 6, B = 18, pw = W - L - R, ph = H - T - B;
-  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": title }, null);
-  card.appendChild(svg);
-  const tip = document.createElement("div"); tip.className = "tip"; card.appendChild(tip);
-  const top = niceTop(Math.max(0, ...values.map(v => v || 0)));
-  for (const f of [0, 0.5, 1]) {
-    const y = T + ph - ph * f;
-    el("line", { x1: L, x2: L + pw, y1: y, y2: y, stroke: "var(--grid)", "stroke-width": 1 }, svg);
-    el("text", { x: L - 4, y: y + 3, "text-anchor": "end" }, svg).textContent = fmtV(top * f, true);
-  }
-  const n = values.length, slot = pw / n;
-  const X = i => L + slot * (i + 0.5), Y = v => T + ph - ph * ((v || 0) / top);
-  for (const i of [0, Math.floor(n / 2), n - 1]) {
-    el("text", { x: X(i), y: H - 4, "text-anchor": "middle" }, svg).textContent = days[i].slice(8, 10) + "." + days[i].slice(5, 7);
-  }
-  const marks = [];
-  if (kind === "columns") {
-    const bw = Math.min(10, slot - 2);
-    values.forEach((v, i) => {
-      const h = Math.max(0, T + ph - Y(v));
-      if (h < 0.5) { marks.push(null); return; }
-      const r = Math.min(3, h / 2, bw / 2), x = X(i) - bw / 2, y = Y(v);
-      // a rounded top, square at the baseline
-      marks.push(el("path", { d: `M${x},${T + ph} V${y + r} Q${x},${y} ${x + r},${y} H${x + bw - r} Q${x + bw},${y} ${x + bw},${y + r} V${T + ph} Z`, fill: "var(--mark)" }, svg));
-    });
-  } else {
-    const pts = values.map((v, i) => v === null ? null : `${X(i)},${Y(v)}`).filter(Boolean);
-    if (pts.length > 1) el("polyline", { points: pts.join(" "), fill: "none", stroke: "var(--mark)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
-    const li = values.length - 1;
-    if (values[li] !== null) el("circle", { cx: X(li), cy: Y(values[li]), r: 4, fill: "var(--mark)", stroke: "var(--card)", "stroke-width": 2 }, svg);
-  }
-  const cross = el("line", { y1: T, y2: T + ph, stroke: "var(--muted)", "stroke-width": 1, visibility: "hidden" }, svg);
-  const hot = el("circle", { r: 4, fill: "var(--mark)", stroke: "var(--card)", "stroke-width": 2, visibility: "hidden" }, svg);
-  // the whole plot is the hit area: the nearest day
-  const hit = el("rect", { x: L, y: T - 4, width: pw, height: ph + 8, fill: "transparent", tabindex: 0 }, svg);
-  let cur = -1;
-  function show(i) {
-    if (cur >= 0 && marks[cur]) marks[cur].setAttribute("fill", "var(--mark)");
-    cur = i;
-    const v = values[i];
-    if (kind === "columns" && marks[i]) marks[i].setAttribute("fill", "var(--mark-hover)");
-    if (kind === "line") {
-      cross.setAttribute("x1", X(i)); cross.setAttribute("x2", X(i)); cross.setAttribute("visibility", "visible");
-      if (v !== null) { hot.setAttribute("cx", X(i)); hot.setAttribute("cy", Y(v)); hot.setAttribute("visibility", "visible"); }
-    }
-    tip.textContent = "";
-    const b = document.createElement("b"); b.textContent = v === null ? "—" : fmtV(v); tip.appendChild(b);
-    tip.appendChild(document.createTextNode(days[i].slice(8, 10) + "." + days[i].slice(5, 7)));
-    const r = svg.getBoundingClientRect(), k = r.width / W;
-    tip.style.left = (8 + X(i) * k) + "px";
-    tip.style.top = (28 + Y(v) * k - 6) + "px";
-    tip.style.display = "block";
-  }
-  function hide() {
-    if (cur >= 0 && marks[cur]) marks[cur].setAttribute("fill", "var(--mark)");
-    cur = -1; tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); hot.setAttribute("visibility", "hidden");
-  }
-  hit.addEventListener("pointermove", e => {
-    const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) * W / r.width;
-    show(Math.max(0, Math.min(n - 1, Math.floor((x - L) / slot))));
-  });
-  hit.addEventListener("pointerleave", hide);
-  hit.addEventListener("focus", () => show(n - 1));
-  hit.addEventListener("blur", hide);
-  hit.addEventListener("keydown", e => {
-    if (e.key === "ArrowLeft") show(Math.max(0, cur - 1));
-    if (e.key === "ArrowRight") show(Math.min(n - 1, cur + 1));
-  });
-  box.appendChild(card);
-}
-async function charts(sid, box) {
-  try {
-    const h = await (await fetch("/api/v1/history/" + encodeURIComponent(sid) + "?days=" + (DAYS + 7))).json();
-    if (!h.series || !box.isConnected) return;
-    const days = lastDays();
-    const stars = carry(h.series.stars || [], days);
-    const play = carry(h.series.playtime || [], days);
-    let prev = null;
-    const perDay = play.map(v => { const d = v === null || prev === null ? 0 : Math.max(0, Math.round((v - prev) / 60)); if (v !== null) prev = v; return d; });
-    if (!stars.some(v => v !== null) && !play.some(v => v !== null)) return;
-    const wrap = document.createElement("div"); wrap.className = "charts";
-    const h4 = document.createElement("h4"); h4.textContent = "За 30 дней";
-    box.appendChild(h4); box.appendChild(wrap);
-    drawChart(wrap, "Время в игре по дням, мин", "columns", perDay, days, (v, tick) => tick ? String(Math.round(v)) : Math.round(v) + " мин");
-    drawChart(wrap, "Звёзды за всё время", "line", stars, days, v => Math.round(v).toLocaleString("ru-RU"));
-  } catch (e) {}
-}
-
-// a player's whole page: every known stat, grouped like the menu
-async function profile(sid) {
-  try {
-    const p = await (await fetch("/api/v1/player/" + encodeURIComponent(sid))).json();
-    if (openSid !== sid || !$("prof")) return;
-    const s = p.stats || {};
-    const groups = CATS.map(c => {
-      const items = c.stats.map(st => {
-        const v = st.key.startsWith("items:") ? (p.items || {})[st.key.slice(6)] : s[st.key];
-        return v === undefined || v === null ? "" : `<div><span>${esc(st.label)}</span><b>${esc(fmt(st, v))}</b></div>`;
-      }).join("");
-      return items ? `<h4>${esc(c.label)}</h4><div class="grid">${items}</div>` : "";
-    }).join("");
-    const ch = (p.characters || []).map(c => PONIES[c] || c).join(", ");
-    $("prof").innerHTML = (groups || '<div class="empty">Пока ничего</div>') + (ch ? `<h4>Играл(а) за</h4><div>${esc(ch)}</div>` : "");
-    charts(sid, $("prof"));
-  } catch (e) { if ($("prof")) $("prof").textContent = "Не получилось загрузить"; }
-}
 
 rows.addEventListener("click", e => {
   const tr = e.target.closest("tr.r");

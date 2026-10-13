@@ -595,9 +595,23 @@ def admin_wipe_install(install: str, request: Request, x_admin_token: str = Head
     return {"ok": True}
 
 
-@app.get("/")
+def _page(name):
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", name))
+
+
+@app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "index.html"))
+    return _page("index.html")
+
+
+@app.get("/me", include_in_schema=False)
+def me_page():
+    return _page("me.html")  # the login is checked by the API calls of the page
+
+
+@app.get("/editor/{u}", include_in_schema=False)
+def editor_page(u: str):
+    return _page("editor.html")
 
 
 @app.exception_handler(500)

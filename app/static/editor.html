@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Редактор песни — Maretime Bay</title>
+<link rel="stylesheet" href="/static/site.css">
+<style>
+  main { max-width: 1100px; }
+  .head { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; padding: 10px; align-items: center; }
+  .head .facts { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px; }
+  .tools .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+  .tools label { font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  .tools select, .tools input[type=number] { width: auto; padding: 5px 8px; }
+  .time { font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; font-size: 14px; }
+  .lane { position: relative; margin-top: 8px; padding: 0; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 230px; touch-action: none; cursor: crosshair; }
+  input[type=range].scroll { width: 100%; margin: 6px 0 0; padding: 0; accent-color: var(--pink); }
+  .side { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .side .card { padding: 10px 12px; }
+  .side h3 { margin: 0 0 6px; font-size: 14px; }
+  .side p { margin: 4px 0; font-size: 13px; color: var(--muted); }
+  .warn { color: #b3471f; font-size: 13px; margin: 4px 0; }
+  @media (prefers-color-scheme: dark) { .warn { color: #ffb08a; } }
+  kbd { background: var(--row); border-radius: 4px; padding: 0 5px; font: 12px ui-monospace, monospace; }
+  .status { font-size: 13px; color: var(--muted); margin-left: auto; }
+  .msg { padding: 16px; color: var(--muted); }
+  /* the test: the same lane as in the game */
+  .test { position: fixed; inset: 0; background: rgba(15, 6, 28, .92); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 40; color: #fff; }
+  .test canvas { width: min(1100px, 96vw); height: 300px; cursor: default; }
+  .test .score { font-size: 34px; font-weight: 800; color: #ffd65a; }
+  .test .hint { color: #c9b6ef; font-size: 13px; margin-top: 8px; }
+  @media (max-width: 760px) { .head, .side { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="bar"></div>
+<main>
+  <div class="top"><b>Maretime Bay · редактор песни</b><span id="account"></span></div>
+  <nav class="links"><a href="/">Рекорды</a><a href="/me">Моя статистика</a></nav>
+  <div id="out" class="card msg">Загрузка…</div>
+  <div id="ed" hidden>
+    <div class="card head">
+      <input id="title" maxlength="80" aria-label="Название">
+      <input id="artist" maxlength="80" placeholder="Исполнитель" aria-label="Исполнитель">
+      <span class="facts" id="facts"></span>
+    </div>
+    <div class="card tools" style="margin-top:8px">
+      <button class="btn main" id="play" title="Пробел">▶ Играть</button>
+      <span class="time" id="time">0:00.0</span>
+      <span class="sep"></span>
+      <label>Масштаб <button class="btn" id="zout" title="−">−</button><button class="btn" id="zin" title="+">+</button></label>
+      <label>Привязка <select id="snap"><option value="0">нет</option><option value="1" selected>к удару</option><option value="2">½ удара</option><option value="4">¼ удара</option></select></label>
+      <span class="sep"></span>
+      <button class="btn" id="hold" title="H">Удержание</button>
+      <button class="btn" id="del" title="Delete">Удалить ноту</button>
+      <button class="btn" id="undo" title="Ctrl+Z">↶ Отменить</button>
+      <button class="btn" id="auto">Расставить автоматически</button>
+      <span class="sep"></span>
+      <button class="btn main" id="test">Проверить</button>
+      <button class="btn main" id="save">Сохранить</button>
+      <span class="status" id="status"></span>
+    </div>
+    <div class="card lane"><canvas id="cv" aria-label="Дорожка нот"></canvas></div>
+    <input type="range" class="scroll" id="scroll" min="0" max="1000" value="0" aria-label="Прокрутка">
+    <div class="side">
+      <div class="card">
+        <h3>Фрагмент для прослушивания</h3>
+        <p>Его услышат все в списке песен (полный трек сайт после проверки удаляет).</p>
+        <div class="tools" style="padding:4px 0">
+          <label>Начало, с <input type="number" id="pstart" min="0" step="0.5" style="width:90px"></label>
+          <label>Длина <select id="plen"><option>10</option><option>15</option><option selected>20</option><option>25</option><option>30</option></select> с</label>
+          <button class="btn" id="phere">С текущего места</button>
+          <button class="btn" id="pplay">▶ Фрагмент</button>
+        </div>
+        <p>На дорожке он подсвечен сверху.</p>
+      </div>
+      <div class="card">
+        <h3>Как править</h3>
+        <p>Клик по нижней части дорожки — поставить ноту или выбрать её; тяните, чтобы сдвинуть. <kbd>H</kbd> — удержание,
+          <kbd>Delete</kbd> — удалить, <kbd>Ctrl</kbd>+<kbd>Z</kbd> — отменить, <kbd>Пробел</kbd> — играть / пауза.
+          Клик по верхней части (волна) — перемотка; колесо — прокрутка, <kbd>Ctrl</kbd>+колесо — масштаб.</p>
+        <p>Клавиши нот (стрелка или «E») в игре выпадают случайно — как в самой игре.</p>
+        <div id="warns"></div>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="/static/site.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const UUID = location.pathname.split("/").pop();
+const HOLD = 1.94, MIN_GAP = 0.25, GOOD_GAP = 0.43;      // the game: hold length, the hard minimum, the game charts' gap
+const PERFECT = 0.09, GOOD = 0.2, APPROACH = 1.7, TICK = 0.485 / 4;
+let song = null, buf = null, ctx = null, peaks = null;
+let notes = [];                 // [{ t, hold }]
+let sel = -1, zoom = 140, view = 0, dirty = false, undo = [];
+let playing = null;             // { src, at, from }
+const cv = $("cv"), g = cv.getContext("2d");
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function mmss(t, dec) { t = Math.max(0, t); const m = Math.floor(t / 60), s = t - m * 60; return m + ":" + (dec ? s.toFixed(1).padStart(4, "0") : String(Math.floor(s)).padStart(2, "0")); }
+function setStatus(t) { $("status").textContent = t; }
+function mark() { dirty = true; setStatus("есть несохранённые изменения"); checkWarnings(); draw(); }
+function snapshot() { undo.push(JSON.stringify(notes)); if (undo.length > 200) undo.shift(); }
+
+// ------------------------------------------------------------------ loading
+async function load() {
+  const r = await fetch("/api/v1/songs/" + UUID);
+  if (r.status === 404) { $("out").textContent = "Песня не найдена (или это не ваша песня)."; return; }
+  song = await r.json();
+  if (song.analysis === "queued" || song.analysis === "running") { $("out").textContent = "Ноты расставляются автоматически… (страница обновится сама)"; setTimeout(load, 2500); return; }
+  if (song.status !== "draft") { $("out").textContent = "Эту песню уже отправили на проверку — править можно только черновик."; return; }
+  if (!song.has_full) { $("out").textContent = "Полного трека уже нет на сайте — редактировать нельзя."; return; }
+  $("out").textContent = "Загружается звук…";
+  const audio = await (await fetch("/api/v1/songs/" + UUID + "/full.ogg")).arrayBuffer();
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  buf = await ctx.decodeAudioData(audio);
+  peaks = buildPeaks(buf);
+  const ch = song.chart || { t: [], large: [] };
+  const L = new Set(ch.large);
+  notes = ch.t.map((t, i) => ({ t, hold: L.has(i + 1) }));
+  $("title").value = song.title; $("artist").value = song.artist || "";
+  $("pstart").value = song.preview_start || 0; $("plen").value = String(Math.round(song.preview_len || 20));
+  $("facts").textContent = `${mmss(song.len)} · ${song.bpm || "?"} BPM`;
+  $("out").hidden = true; $("ed").hidden = false;
+  resize(); checkWarnings(); setStatus("сохранено");
+}
+
+// the waveform: max |sample| per 10 ms
+function buildPeaks(b) {
+  const step = Math.floor(b.sampleRate / 100), n = Math.ceil(b.length / step), out = new Float32Array(n);
+  const chs = [];
+  for (let c = 0; c < b.numberOfChannels; c++) chs.push(b.getChannelData(c));
+  for (let i = 0; i < n; i++) {
+    let m = 0;
+    for (const d of chs) for (let j = i * step, e = Math.min(d.length, j + step); j < e; j += 4) { const v = Math.abs(d[j]); if (v > m) m = v; }
+    out[i] = m;
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ playback (Web Audio: sample-exact time)
+function now() { return playing ? playing.from + (ctx.currentTime - playing.at) : (window._pos || 0); }
+function play(from, until) {
+  stop();
+  if (ctx.state === "suspended") ctx.resume();
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+  from = Math.max(0, Math.min(from, buf.duration - 0.05));
+  src.start(0, from, until ? until - from : undefined);
+  playing = { src, at: ctx.currentTime, from };
+  src.onended = () => { if (playing && playing.src === src) { window._pos = now(); playing = null; $("play").textContent = "▶ Играть"; } };
+  $("play").textContent = "❚❚ Пауза";
+  requestAnimationFrame(tick);
+}
+function stop() { if (playing) { window._pos = now(); const p = playing; playing = null; try { p.src.stop(); } catch (e) {} } $("play").textContent = "▶ Играть"; }
+function tick() {
+  if (!playing) { draw(); return; }
+  const t = now();
+  const w = cv.clientWidth / zoom;
+  if (t > view + w * 0.85) setView(t - w * 0.15);   // follow the playhead
+  draw();
+  requestAnimationFrame(tick);
+}
+
+// ------------------------------------------------------------------ the lane
+const WAVE_H = 0.45;  // the top part: waveform (click = seek); the bottom: notes (click = add / pick)
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  setView(view); draw();
+}
+function setView(v) {
+  const w = cv.clientWidth / zoom;
+  view = Math.max(0, Math.min(v, Math.max(0, song.len - w)));
+  $("scroll").value = song.len > w ? Math.round(view / (song.len - w) * 1000) : 0;
+}
+const X = t => (t - view) * zoom, T = x => view + x / zoom;
+function beatGrid() { return song.beats && song.beats.length ? song.beats : []; }
+function snapT(t) {
+  const div = +$("snap").value, bs = beatGrid();
+  if (!div || bs.length < 2) return Math.max(0, Math.min(song.len, t));
+  // the grid: beats split in div parts
+  let i = 0; while (i < bs.length - 2 && bs[i + 1] < t) i++;
+  const a = bs[i], b = bs[i + 1], step = (b - a) / div;
+  if (t < a) return Math.max(0, a - Math.round((a - t) / step) * step);
+  const k = Math.round((t - a) / step);
+  return Math.min(song.len, a + k * step);
+}
+
+function draw() {
+  if (!song || !peaks) return;
+  const W = cv.clientWidth, H = cv.clientHeight, wh = H * WAVE_H, ny = wh + (H - wh) / 2;
+  const C = { bg: css("--card"), row: css("--row"), grid: css("--grid"), text: css("--text"), muted: css("--muted"), mark: css("--mark"), pink: css("--pink"), lilac: css("--lilac") };
+  g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+  // the preview fragment
+  const ps = +$("pstart").value || 0, pl = +$("plen").value;
+  g.fillStyle = C.row; g.fillRect(X(ps), 0, pl * zoom, wh);
+  // waveform
+  g.fillStyle = C.lilac;
+  for (let x = 0; x < W; x++) {
+    const i0 = Math.floor(T(x) * 100), i1 = Math.max(i0 + 1, Math.floor(T(x + 1) * 100));
+    let m = 0; for (let i = i0; i < i1 && i < peaks.length; i++) if (peaks[i] > m) m = peaks[i];
+    const h = m * (wh - 8); g.fillRect(x, wh / 2 - h / 2, 1, Math.max(1, h));
+  }
+  // beat grid: hairlines, stronger every 4 beats; second labels
+  const bs = beatGrid();
+  for (let i = 0; i < bs.length; i++) {
+    const x = X(bs[i]); if (x < -2 || x > W + 2) continue;
+    g.fillStyle = i % 4 === 0 ? C.muted : C.grid; g.globalAlpha = i % 4 === 0 ? 0.5 : 1;
+    g.fillRect(Math.round(x), wh, 1, H - wh); g.globalAlpha = 1;
+  }
+  g.fillStyle = C.grid; g.fillRect(0, Math.round(wh), W, 1);
+  g.fillStyle = C.muted; g.font = "11px system-ui"; g.textAlign = "left";
+  for (let s = Math.ceil(view); s < T(W); s++) if (s % (zoom > 60 ? 5 : 15) === 0) g.fillText(mmss(s), X(s) + 3, wh - 4);
+  // notes: holds as a bar of their length, a dot at the press
+  notes.forEach((n, i) => {
+    const x = X(n.t); if (x < -HOLD * zoom - 20 || x > W + 20) return;
+    if (n.hold) { g.fillStyle = C.pink; g.globalAlpha = 0.35; g.beginPath(); g.roundRect(x, ny - 9, HOLD * zoom, 18, 9); g.fill(); g.globalAlpha = 1; }
+    g.beginPath(); g.arc(x, ny, i === sel ? 10 : 8, 0, Math.PI * 2);
+    g.fillStyle = C.bg; g.fill();
+    g.beginPath(); g.arc(x, ny, i === sel ? 8 : 6, 0, Math.PI * 2);
+    g.fillStyle = n.hold ? C.pink : C.mark; g.fill();
+    if (i === sel) { g.strokeStyle = C.text; g.lineWidth = 2; g.beginPath(); g.arc(x, ny, 12, 0, Math.PI * 2); g.stroke(); }
+  });
+  // playhead
+  const px = X(now());
+  g.fillStyle = C.text; g.fillRect(Math.round(px), 0, 2, H);
+  $("time").textContent = mmss(now(), true);
+}
+
+// ------------------------------------------------------------------ editing
+function noteAt(x, y) {
+  const H = cv.clientHeight, wh = H * WAVE_H, ny = wh + (H - wh) / 2;
+  if (y < wh) return -1;
+  let best = -1, bd = 12;
+  notes.forEach((n, i) => { const d = Math.abs(X(n.t) - x); if (d < bd && Math.abs(y - ny) < 26) { bd = d; best = i; } });
+  return best;
+}
+let drag = null;
+cv.addEventListener("pointerdown", e => {
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  if (y < cv.clientHeight * WAVE_H) {           // the waveform: seek
+    const t = Math.max(0, Math.min(song.len, T(x)));
+    if (playing) play(t); else { window._pos = t; draw(); }
+    return;
+  }
+  const i = noteAt(x, y);
+  if (i >= 0) { sel = i; snapshot(); drag = { i, moved: false }; cv.setPointerCapture(e.pointerId); draw(); return; }
+  snapshot();
+  const t = snapT(T(x));
+  notes.push({ t, hold: false }); notes.sort((a, b) => a.t - b.t);
+  sel = notes.findIndex(n => n.t === t);
+  mark();
+});
+cv.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const r = cv.getBoundingClientRect();
+  notes[drag.i].t = snapT(T(e.clientX - r.left)); drag.moved = true; draw();
+});
+cv.addEventListener("pointerup", () => {
+  if (!drag) return;
+  if (drag.moved) { const n = notes[drag.i]; notes.sort((a, b) => a.t - b.t); sel = notes.indexOf(n); mark(); } else undo.pop();
+  drag = null;
+});
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  if (e.ctrlKey) { const r = cv.getBoundingClientRect(), at = T(e.clientX - r.left); zoom = Math.max(20, Math.min(800, zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2))); setView(at - (e.clientX - r.left) / zoom); }
+  else setView(view + (e.deltaX || e.deltaY) / zoom);
+  draw();
+}, { passive: false });
+$("scroll").oninput = () => { const w = cv.clientWidth / zoom; setView((song.len - w) * $("scroll").value / 1000); draw(); };
+$("zin").onclick = () => { const c = view + cv.clientWidth / zoom / 2; zoom = Math.min(800, zoom * 1.4); setView(c - cv.clientWidth / zoom / 2); draw(); };
+$("zout").onclick = () => { const c = view + cv.clientWidth / zoom / 2; zoom = Math.max(20, zoom / 1.4); setView(c - cv.clientWidth / zoom / 2); draw(); };
+function toggleHold() { if (sel < 0) return; snapshot(); notes[sel].hold = !notes[sel].hold; mark(); }
+function delNote() { if (sel < 0) return; snapshot(); notes.splice(sel, 1); sel = Math.min(sel, notes.length - 1); mark(); }
+function doUndo() { if (!undo.length) return; notes = JSON.parse(undo.pop()); sel = -1; mark(); }
+$("hold").onclick = toggleHold; $("del").onclick = delNote; $("undo").onclick = doUndo;
+$("play").onclick = () => playing ? stop() : play(now());
+document.addEventListener("keydown", e => {
+  if ($("ed").hidden || document.querySelector(".test") || ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  if (e.key === " ") { e.preventDefault(); playing ? stop() : play(now()); }
+  else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); delNote(); }
+  else if (e.key === "h" || e.key === "H" || e.key === "р" || e.key === "Р") toggleHold();
+  else if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "я")) { e.preventDefault(); doUndo(); }
+  else if (e.key === "ArrowLeft" && sel >= 0) { sel = Math.max(0, sel - 1); window._pos = notes[sel].t; draw(); }
+  else if (e.key === "ArrowRight" && sel >= 0) { sel = Math.min(notes.length - 1, sel + 1); window._pos = notes[sel].t; draw(); }
+});
+["pstart", "plen", "snap"].forEach(id => $(id).addEventListener("change", () => { if (id !== "snap") mark(); draw(); }));
+["title", "artist"].forEach(id => $(id).addEventListener("input", () => { dirty = true; setStatus("есть несохранённые изменения"); }));
+$("phere").onclick = () => { $("pstart").value = Math.max(0, Math.min(song.len - +$("plen").value, now())).toFixed(1); mark(); };
+$("pplay").onclick = () => { const s = +$("pstart").value; play(s, s + +$("plen").value); };
+window.addEventListener("resize", resize);
+window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+// the same rules the server checks, as hints while editing
+function problems() {
+  const out = [];
+  for (let i = 1; i < notes.length; i++) {
+    const d = notes[i].t - notes[i - 1].t;
+    if (d < MIN_GAP) out.push({ i, hard: true, text: `ноты ${i} и ${i + 1} ближе ${MIN_GAP} с (${mmss(notes[i].t, true)}) — так нельзя` });
+    else if (d < GOOD_GAP) out.push({ i, hard: false, text: `ноты ${i} и ${i + 1} очень близко (${mmss(notes[i].t, true)}) — трудно попасть` });
+    if (notes[i - 1].hold && d < HOLD + 0.05) out.push({ i, hard: true, text: `нота ${i + 1} внутри удержания (${mmss(notes[i].t, true)})` });
+  }
+  return out;
+}
+function checkWarnings() {
+  const p = problems(), box = $("warns");
+  box.textContent = "";
+  p.slice(0, 6).forEach(w => { const d = document.createElement("div"); d.className = "warn"; d.textContent = (w.hard ? "⛔ " : "⚠ ") + w.text; d.style.cursor = "pointer";
+    d.onclick = () => { sel = w.i; window._pos = notes[w.i].t; setView(notes[w.i].t - cv.clientWidth / zoom / 3); draw(); }; box.appendChild(d); });
+  if (p.length > 6) { const d = document.createElement("div"); d.className = "warn"; d.textContent = `…и ещё ${p.length - 6}`; box.appendChild(d); }
+  const np = notes.length, nh = notes.filter(n => n.hold).length;
+  $("facts").textContent = `${mmss(song.len)} · ${song.bpm || "?"} BPM · ${np} нот, ${nh} удерж.`;
+  return p;
+}
+
+// ------------------------------------------------------------------ save, automatic chart
+async function save() {
+  if (problems().some(p => p.hard)) { setStatus("исправьте отмеченные ⛔ ноты"); return false; }
+  setStatus("сохраняется…");
+  const body = { t: notes.map(n => n.t), large: notes.map((n, i) => n.hold ? i + 1 : 0).filter(Boolean),
+    preview_start: +$("pstart").value, preview_len: +$("plen").value, title: $("title").value, artist: $("artist").value };
+  const r = await fetch("/api/v1/songs/" + UUID + "/chart", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (r.ok) { dirty = false; setStatus("сохранено"); return true; }
+  const j = await r.json().catch(() => ({}));
+  setStatus("не сохранилось: " + (j.detail || r.status));
+  return false;
+}
+$("save").onclick = save;
+$("auto").onclick = async () => {
+  if (!confirm("Расставить ноты автоматически заново? Текущие ноты заменятся (их можно вернуть «Отменить»).")) return;
+  snapshot();
+  setStatus("расставляется…");
+  await fetch("/api/v1/songs/" + UUID + "/auto", { method: "POST" });
+  for (;;) {
+    await new Promise(r => setTimeout(r, 1500));
+    const s = await (await fetch("/api/v1/songs/" + UUID)).json();
+    if (s.analysis === "done" || s.analysis === "failed") {
+      if (s.analysis === "failed") { setStatus("не получилось: " + (s.analysis_error || "")); return; }
+      const L = new Set(s.chart.large); notes = s.chart.t.map((t, i) => ({ t, hold: L.has(i + 1) })); sel = -1; mark(); return;
+    }
+  }
+};
+
+// ------------------------------------------------------------------ the test: the game's lane, keys and points
+const KEYS = ["up", "down", "left", "right", "act", "act"];
+const KEYMAP = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down", ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", Space: "act", KeyE: "act" };
+const COL = { up: "#288cff", down: "#1ebe5a", left: "#ff8c00", right: "#eb3282", act: "#9650f5", any: "#ffd65a" };
+function gameNotes(seed) {                    // like sh_mg_dance.lua D.NotesFrom: random keys (holds: any key), new each game
+  let r = seed;
+  const rnd = n => { r = (r * 1103515245 + 12345) % 2147483648; return Math.floor(r / 65536) % n + 1; };
+  return notes.map(n => ({ t: n.t, key: n.hold ? "any" : KEYS[rnd(KEYS.length) - 1], large: n.hold }));
+}
+function points(combo, perfect) { if (combo >= 6) return [perfect ? 9 : 5, "СУПЕР!"]; if (combo >= 3) return [perfect ? 7 : 3, "КРУТО!"]; return [perfect ? 5 : 1, "ХОРОШО"]; }
+$("test").onclick = () => {
+  stop();
+  const start = Math.max(0, now() - 0.5);
+  const seed = Math.floor(Math.random() * 2000000) + 1;
+  const ns = gameNotes(seed), judged = {}, hold = {};
+  ns.forEach((n, i) => { if (n.t < start + 0.2) judged[i] = "skip"; }); // before where the test starts
+  let score = 0, combo = 0, word = "", wordT = -9;
+  const wrap = document.createElement("div"); wrap.className = "test";
+  const sc = document.createElement("div"); sc.className = "score"; sc.textContent = "0";
+  const tc = document.createElement("canvas");
+  const hint = document.createElement("div"); hint.className = "hint";
+  hint.textContent = "Стрелки / WASD — ноты со стрелками · Пробел / E — круглые · жёлтая полоса — держать любую · Esc — выйти";
+  wrap.append(sc, tc, hint); document.body.appendChild(wrap);
+  const tg = tc.getContext("2d");
+  const dpr = window.devicePixelRatio || 1; tc.width = tc.clientWidth * dpr; tc.height = tc.clientHeight * dpr; tg.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (ctx.state === "suspended") ctx.resume();
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+  const t0 = ctx.currentTime + 0.3; src.start(t0, start);
+  const st = () => start + (ctx.currentTime - t0);
+  const held = new Set();
+  function judge(i, grade) {
+    judged[i] = grade;
+    if (grade === "miss") { combo = 0; word = "ОЙ!"; }
+    else { if (grade === "perfect") combo++; const [p, w] = points(combo, grade === "perfect"); score += p; word = w; }
+    wordT = st(); sc.textContent = score;
+  }
+  function press(key) {
+    const t = st();
+    for (let i = 0; i < ns.length; i++) {
+      if (judged[i] || ns[i].large) continue;
+      const off = t - ns[i].t;
+      if (off < -GOOD) return;
+      if (off <= GOOD) { judge(i, key !== ns[i].key ? "miss" : (Math.abs(off) <= PERFECT ? "perfect" : "good")); return; }
+    }
+  }
+  function kd(e) { if (e.key === "Escape") { close(); return; } const k = KEYMAP[e.code]; if (!k) return; e.preventDefault(); if (!held.has(e.code)) { held.add(e.code); press(k); } }
+  function ku(e) { held.delete(e.code); }
+  document.addEventListener("keydown", kd); document.addEventListener("keyup", ku);
+  let alive = true;
+  function close() { alive = false; try { src.stop(); } catch (e) {} document.removeEventListener("keydown", kd); document.removeEventListener("keyup", ku); wrap.remove(); }
+  function arrow(x, y, r, dir) {
+    const a = { up: -Math.PI / 2, down: Math.PI / 2, left: Math.PI, right: 0 }[dir]; const ca = Math.cos(a), sa = Math.sin(a);
+    const P = (u, v) => [x + (ca * u - sa * v) * r, y + (sa * u + ca * v) * r];
+    tg.beginPath(); [[0.85, 0], [0.05, 0.62], [0.05, -0.62]].forEach((p, i) => { const q = P(...p); i ? tg.lineTo(...q) : tg.moveTo(...q); }); tg.closePath(); tg.fill();
+    tg.beginPath(); [[0.1, -0.24], [0.1, 0.24], [-0.75, 0.24], [-0.75, -0.24]].forEach((p, i) => { const q = P(...p); i ? tg.lineTo(...q) : tg.moveTo(...q); }); tg.closePath(); tg.fill();
+  }
+  function frame() {
+    if (!alive) return;
+    const t = st(), W = tc.clientWidth, H = tc.clientHeight, hy = H / 2, hx = 110, span = W - 160;
+    tg.clearRect(0, 0, W, H);
+    tg.fillStyle = "rgba(40,20,60,.85)"; tg.beginPath(); tg.roundRect(20, hy - 75, W - 40, 150, 75); tg.fill();
+    tg.fillStyle = "#1e0f2d"; tg.beginPath(); tg.arc(hx, hy, 57, 0, Math.PI * 2); tg.fill();
+    tg.strokeStyle = "#ffd65a"; tg.lineWidth = 6; tg.beginPath(); tg.arc(hx, hy, 60, 0, Math.PI * 2); tg.stroke();
+    const anyHeld = held.size > 0;
+    tg.save(); tg.beginPath(); tg.roundRect(20, hy - 75, W - 40, 150, 75); tg.clip(); // notes stay inside the lane
+    for (let i = ns.length - 1; i >= 0; i--) {
+      const n = ns[i], dt = n.t - t;
+      if (n.large) {
+        const h = hold[i] || (hold[i] = { ticks: 0, last: -1 });
+        if (!judged[i] && t >= n.t - GOOD && t <= n.t + HOLD && anyHeld && t - h.last >= TICK) { h.last = t; h.ticks++; }
+        if (!judged[i] && t > n.t + HOLD) { judged[i] = "hold"; score += h.ticks; if (h.ticks) { word = "БОНУС +" + h.ticks; wordT = t; } sc.textContent = score; }
+      } else if (!judged[i] && t > n.t + GOOD) judge(i, "miss");
+      if (dt > APPROACH || dt < -(n.large ? HOLD : 0) - 0.4) continue;
+      if (judged[i] && judged[i] !== "miss" && judged[i] !== "hold") continue; // hit (or skipped): gone
+      const x = hx + dt / APPROACH * span;
+      if (n.large) {
+        const x2 = hx + (dt + HOLD) / APPROACH * span, xa = Math.max(x, hx);
+        if (x2 > xa) { tg.fillStyle = "rgba(255,214,90,.7)"; tg.beginPath(); tg.roundRect(xa - 40, hy - 40, x2 - xa + 80, 80, 40); tg.fill(); }
+        continue;
+      }
+      tg.globalAlpha = judged[i] ? 0.35 : 1;
+      tg.fillStyle = "#1c0a30"; tg.beginPath(); tg.arc(x, hy, 56, 0, Math.PI * 2); tg.fill();
+      tg.fillStyle = "#fff"; tg.beginPath(); tg.arc(x, hy, 52, 0, Math.PI * 2); tg.fill();
+      tg.fillStyle = COL[n.key]; tg.beginPath(); tg.arc(x, hy, 46, 0, Math.PI * 2); tg.fill();
+      if (n.key === "act") { tg.fillStyle = "#1c0a30"; tg.font = "bold 40px system-ui"; tg.textAlign = "center"; tg.textBaseline = "middle"; tg.fillText("E", x, hy + 2); }
+      else { tg.fillStyle = "#fff"; arrow(x, hy, 49, n.key); tg.fillStyle = "#1c0a30"; arrow(x, hy, 39, n.key); }
+      tg.globalAlpha = 1;
+    }
+    tg.restore();
+    if (t - wordT < 0.8) { tg.fillStyle = word === "ОЙ!" ? "#ff8a8a" : "#ffd65a"; tg.font = "bold 34px system-ui"; tg.textAlign = "center"; tg.textBaseline = "alphabetic"; tg.fillText(word, hx + 40, hy - 90 - (t - wordT) * 40); }
+    if (t > song.len) { hint.textContent = "Готово! Очки: " + score + " · Esc — выйти"; }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+};
+
+// ------------------------------------------------------------------ start
+document.addEventListener("mlp-me", e => {
+  if (!e.detail) { $("out").innerHTML = 'Редактор — после входа. <button class="btn main" id="loginHere">Войти через Steam</button>'; $("loginHere").onclick = () => window.mlpLogin(); return; }
+  load().catch(err => { $("out").textContent = "Не получилось загрузить песню: " + err; });
+});
+</script>
+</body>
+</html>
