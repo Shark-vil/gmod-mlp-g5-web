@@ -83,7 +83,8 @@ DAILY_DEFAULT = 500
 MIN_TIME = {"time_skyrace": 6, "time_groundrace": 4}
 MIN_TIME_DEFAULT = 3
 # a best score can't be higher than this (the dance minigame: every note perfect at the top combo ≈ 1300)
-MAX_BEST = {"best_dance": 1500}
+# rampage: 300 s at most, a hit every ~0.4 s at ×2 combo ≈ 15000
+MAX_BEST = {"best_dance": 1500, "best_rampage": 20000}
 # kept per day for the charts (GET /api/v1/history/{steamid})
 HISTORY_KEYS = ("stars", "playtime")
 HISTORY_MAX_DAYS = 120
