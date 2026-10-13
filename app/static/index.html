@@ -49,7 +49,7 @@
 <body>
 <div class="bar"></div>
 <main>
-  <div class="top"><b>Maretime Bay · рекорды</b><span>со всех серверов</span></div>
+  <div class="top"><b>Maretime Bay · рекорды</b><span id="account"></span></div>
   <div class="controls">
     <select id="cat" aria-label="Категория"></select>
     <select id="stat" aria-label="Показатель"></select>
@@ -58,6 +58,7 @@
   <div class="card"><table><tbody id="rows"></tbody></table></div>
 </main>
 <footer>Всё открывается только игрой. Никакого доната. Нажмите на игрока — его статистика.</footer>
+<script src="/static/site.js"></script>
 <script>
 const hours = v => (v / 3600).toFixed(1) + " ч";
 const secs = v => { const m = Math.floor(v / 60), s = (v - m * 60).toFixed(2).padStart(5, "0"); return m + ":" + s; };

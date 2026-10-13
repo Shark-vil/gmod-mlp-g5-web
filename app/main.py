@@ -20,7 +20,7 @@ Anti-cheat is deliberately light — it only stops the obvious:
   tied to the play time the player has (a couple per ten minutes)
 - POSTs need a one-time nonce (GET /api/v1/nonce, lives a few seconds, for one purpose and one install) and a
   signature SHA256( nonce .. body .. salt ) - the salt is in the mod's code, so this only makes hand-made
-  requests awkward (no "Try it out" cheating, no replays); /api/docs is off unless MLP_DOCS=1
+  requests awkward (no "Try it out" cheating, no replays); /api/docs is for admins only (Steam login)
 - everything clamped / refused is logged in `flags`; admins (MLP_ADMIN_TOKEN) can list the flags and wipe a
   player or an install
 Optional MLP_SERVER_KEYS ("name:key,…") marks trusted servers (named, no per-IP install limit).
@@ -38,7 +38,14 @@ import time
 from collections import defaultdict, deque
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+try:  # in the image: the package "app"; in local tests: the folder itself
+    from . import auth
+except ImportError:
+    import auth
 
 DB_PATH = os.environ.get("MLP_DB", "/data/stats.db")
 SERVER_KEYS = {}
@@ -52,7 +59,6 @@ LOOKUP_PER_MIN = int(os.environ.get("MLP_LOOKUP_PER_MIN", "60"))     # unlock lo
 IP_RATE_PER_MIN = int(os.environ.get("MLP_IP_RATE_PER_MIN", "300"))  # any requests per IP: flood guard only
 NEW_INSTALLS_PER_IP_DAY = int(os.environ.get("MLP_NEW_INSTALLS_PER_IP_DAY", "20"))  # hosters run many servers on one IP
 MAX_LOOKUP = 128
-DOCS = os.environ.get("MLP_DOCS", "0") == "1"
 # must match MLP.ApiSalt in the mod (lua/mlp_g5_lib/sv_stats_api.lua)
 SIGN_SALT = os.environ.get("MLP_SIGN_SALT", "mlp-g5:maretime-bay:9f3c1a7e")
 NONCE_TTL = float(os.environ.get("MLP_NONCE_TTL", "5"))  # the mod sends the POST right after getting it
@@ -104,8 +110,8 @@ SPELL_TIER = {"telekinesis": 2, "shield": 3, "bolt": 3, "levitate": 4, "teleport
 # a long-time player catching up gets the rest over the next reports (the mod resends everything)
 NEW_UNLOCKS_PER_DAY = {"vanity": 16, "spell": 5}
 
-app = FastAPI(title="MLP Maretime Bay stats", docs_url="/api/docs" if DOCS else None, redoc_url=None,
-              openapi_url="/api/openapi.json" if DOCS else None)
+# the API docs are behind the admin login (below), not public
+app = FastAPI(title="MLP Maretime Bay stats", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.Lock()
 hits = defaultdict(deque)
 nonces = {}  # nonce -> (install, purpose, expires); one process (see Dockerfile), lost on restart: fine
@@ -140,6 +146,9 @@ def init():
 
 
 init()
+auth.init(db)
+app.include_router(auth.router)
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 
 def agg(key):
@@ -531,23 +540,40 @@ def stat_keys():
 
 
 # ---------------------------------------------------------------------------------------------- admin
-def admin(token):
+@app.get("/api/openapi.json", include_in_schema=False)
+def openapi_json(request: Request):
+    if not auth.is_admin(request):
+        raise HTTPException(403, "admin only")
+    return JSONResponse(app.openapi())
+
+
+@app.get("/api/docs", include_in_schema=False)
+def api_docs(request: Request):
+    if not auth.is_admin(request):
+        raise HTTPException(403, "admin only: log in with an admin Steam account")
+    return get_swagger_ui_html(openapi_url="/api/openapi.json", title="MLP Maretime Bay API")
+
+
+def admin(token, request: Request = None):
+    # an admin's Steam login (MLP_ADMIN_STEAMIDS), or the old token for scripts (MLP_ADMIN_TOKEN, optional)
+    if request is not None and auth.is_admin(request):
+        return
     if not ADMIN_TOKEN or token != ADMIN_TOKEN:
         raise HTTPException(403, "admin only")
 
 
 @app.get("/api/v1/admin/flags")
-def admin_flags(limit: int = 100, x_admin_token: str = Header(default="")):
-    admin(x_admin_token)
+def admin_flags(request: Request, limit: int = 100, x_admin_token: str = Header(default="")):
+    admin(x_admin_token, request)
     with db() as con:
         rows = con.execute("SELECT * FROM flags ORDER BY ts DESC LIMIT ?", (max(1, min(limit, 1000)),)).fetchall()
     return {"rows": [dict(r) for r in rows]}
 
 
 @app.delete("/api/v1/admin/player/{steamid}")
-def admin_wipe_player(steamid: str, x_admin_token: str = Header(default="")):
+def admin_wipe_player(steamid: str, request: Request, x_admin_token: str = Header(default="")):
     """Forget a cheater: stats, items, unlocks, characters."""
-    admin(x_admin_token)
+    admin(x_admin_token, request)
     with lock, db() as con:
         for t in ("server_stats", "server_items", "unlocks", "characters", "budget", "players"):
             con.execute(f"DELETE FROM {t} WHERE steamid = ?", (steamid,))
@@ -555,9 +581,9 @@ def admin_wipe_player(steamid: str, x_admin_token: str = Header(default="")):
 
 
 @app.delete("/api/v1/admin/install/{install}")
-def admin_wipe_install(install: str, x_admin_token: str = Header(default="")):
+def admin_wipe_install(install: str, request: Request, x_admin_token: str = Header(default="")):
     """Drop everything one install (or trusted server, "key:<name>") ever reported."""
-    admin(x_admin_token)
+    admin(x_admin_token, request)
     server = install if install.startswith("key:") else "i:" + install.lower()
     with lock, db() as con:
         for t in ("server_stats", "server_items", "unlocks"):
