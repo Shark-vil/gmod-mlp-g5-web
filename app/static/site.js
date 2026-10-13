@@ -59,7 +59,7 @@
     if (window.mlpMe) {
       if (me.avatar) { const img = el("img"); img.src = me.avatar; img.alt = ""; slot.appendChild(img); }
       const a = el("a", null, me.nick || me.steamid); a.href = me.profile; a.target = "_blank"; a.rel = "noopener"; slot.appendChild(a);
-      if (me.admin) { const ad = el("a", null, "API"); ad.href = "/api/docs"; slot.appendChild(ad); }
+      if (me.admin) { const ad = el("a", null, "админка"); ad.href = "/admin"; slot.appendChild(ad); }
       const out = el("button", "out", "Выйти");
       out.onclick = async () => { await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }); location.reload(); };
       slot.appendChild(out);

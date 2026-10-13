@@ -49,7 +49,7 @@
 <div class="bar"></div>
 <main>
   <div class="top"><b>Maretime Bay · редактор песни</b><span id="account"></span></div>
-  <nav class="links"><a href="/">Рекорды</a><a href="/me">Моя статистика</a></nav>
+  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/me">Моя статистика</a></nav>
   <div id="out" class="card msg">Загрузка…</div>
   <div id="ed" hidden>
     <div class="card head">
@@ -124,8 +124,8 @@ async function load() {
   if (r.status === 404) { $("out").textContent = "Песня не найдена (или это не ваша песня)."; return; }
   song = await r.json();
   if (song.analysis === "queued" || song.analysis === "running") { $("out").textContent = "Ноты расставляются автоматически… (страница обновится сама)"; setTimeout(load, 2500); return; }
-  if (!["draft", "built", "pending"].includes(song.status)) { $("out").textContent = "Эта песня уже прошла проверку — её больше нельзя править."; return; }
-  if (!song.has_full) { $("out").textContent = "Полного трека уже нет на сайте — редактировать нельзя."; return; }
+
+  if (!song.has_full) { $("out").textContent = "Полного трека нет на сайте — редактировать нельзя."; return; }
   $("out").textContent = "Загружается звук…";
   const audio = await (await fetch("/api/v1/songs/" + UUID + "/full.ogg")).arrayBuffer();
   ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -168,14 +168,22 @@ function publishPanel() {
     const li1 = el("li"); li1.append("Скачайте мод: ");
     const a = el("a", "мод песни (.zip)"); a.href = "/api/v1/songs/" + UUID + "/mod.zip"; li1.appendChild(a); ol.appendChild(li1);
     ol.appendChild(el("li", "Проверьте у себя: распакуйте папку из архива в garrysmod/addons/ — песня появится в голосовании в лобби танца."));
-    const li3 = el("li"); li3.append("Выложите в Мастерскую (папка garrysmod/bin): ");
-    li3.appendChild(el("code", 'gmad.exe create -folder "<папка>" -out "<папка>.gma"')); li3.append(" и ");
-    li3.appendChild(el("code", 'gmpublish.exe create -addon "<папка>.gma" -icon "<папка>/icon.jpg"')); li3.append(" (подробно — в README.txt в архиве).");
+    const li3 = el("li");
+    if (song.wsid) {
+      li3.append("Обновите уже выложенный мод (папка garrysmod/bin): ");
+      li3.appendChild(el("code", 'gmad.exe create -folder "<папка>" -out "<папка>.gma"')); li3.append(" и ");
+      li3.appendChild(el("code", 'gmpublish.exe update -addon "<папка>.gma" -id ' + song.wsid)); li3.append(" (подробно — в README.txt в архиве).");
+    } else {
+      li3.append("Выложите в Мастерскую (папка garrysmod/bin): ");
+      li3.appendChild(el("code", 'gmad.exe create -folder "<папка>" -out "<папка>.gma"')); li3.append(" и ");
+      li3.appendChild(el("code", 'gmpublish.exe create -addon "<папка>.gma" -icon "<папка>/icon.jpg"')); li3.append(" (подробно — в README.txt в архиве).");
+    }
     ol.appendChild(li3);
     ol.appendChild(el("li", "Вставьте ссылку на мод ниже и отправьте на проверку. Не меняйте файлы мода — игра сверяет их с сайтом."));
     box.appendChild(ol);
     const row = el("div", null, "row");
     const inp = el("input"); inp.placeholder = "https://steamcommunity.com/sharedfiles/filedetails/?id=…"; inp.setAttribute("aria-label", "Ссылка на мод в Мастерской");
+    if (song.workshop) inp.value = song.workshop;
     const send = el("button", "Отправить на проверку", "btn main");
     const back = el("button", "Вернуться к правке", "btn");
     const msg = el("div", "", "");
@@ -199,10 +207,39 @@ function publishPanel() {
     row.append(inp, send, back); box.appendChild(row); box.appendChild(msg);
     return;
   }
+  const link = (text, href) => { const a = el("a", text); a.href = href; a.target = "_blank"; a.rel = "noopener"; return a; };
+  const pub = song.published;
   if (song.status === "pending") {
-    const p = el("p", "Песня на проверке. После одобрения она появится в общем списке песен и в игре. ", "ok");
-    if (song.workshop) { const a = el("a", "Мод в Мастерской"); a.href = song.workshop; a.target = "_blank"; a.rel = "noopener"; p.appendChild(a); }
+    const p = el("p", pub ? `Новая версия на проверке. Пока её не одобрят, в игре и в списке — версия ${pub.version}. ` : "Песня на проверке. После одобрения она появится в общем списке песен и в игре. ", "ok");
+    if (song.workshop) p.appendChild(link("Мод в Мастерской", song.workshop));
     box.appendChild(p);
+    return;
+  }
+  const revise = (label, note) => {
+    const b = el("button", label, "btn main");
+    b.onclick = async () => {
+      if (note && !confirm(note)) return;
+      const r = await fetch("/api/v1/songs/" + UUID + "/revise", { method: "POST" });
+      if (!r.ok) { setStatus("не получилось"); return; }
+      song = await (await fetch("/api/v1/songs/" + UUID)).json();
+      $("ed").classList.remove("locked"); setStatus("сохранено"); publishPanel();
+    };
+    return b;
+  };
+  if (song.status === "approved") {
+    const p = el("p", `Песня опубликована (версия ${pub ? pub.version : 1}) — она в общем списке и в игре. `, "ok");
+    p.appendChild(link("Страница песни", "/songs/" + UUID)); p.append(" · ");
+    if (song.workshop) p.appendChild(link("Мод в Мастерской", song.workshop));
+    box.appendChild(p);
+    box.appendChild(el("p", "Нужно поправить ноты? «Изменить» откроет новую версию: опубликованная остаётся в игре, пока новую не одобрят. Потом соберите мод и обновите его в Мастерской — звук загружать заново не нужно."));
+    box.appendChild(revise("Изменить", null));
+    return;
+  }
+  if (song.status === "rejected") {
+    const p = el("p", "Проверку не прошла" + (song.reason ? ": " + song.reason : "") + ".", "bad");
+    box.appendChild(p);
+    if (pub) box.appendChild(el("p", `В игре и в списке остаётся версия ${pub.version}.`));
+    box.appendChild(revise("Исправить", null));
   }
 }
 

@@ -1,4 +1,5 @@
 /* shared by every page of the site */
+[hidden] { display: none !important; } /* wins over any display: set below */
 :root { --bg: #fff6fb; --card: #ffffff; --text: #56308a; --muted: #9a7cc0; --pink: #ff78be; --lilac: #a882ff; --row: #ffecf7; --line: #f3d9ea;
         --mark: #d6469a; --mark-hover: #ff78be; --grid: #ecd6e6; }
 @media (prefers-color-scheme: dark) { :root { --bg: #1a1224; --card: #261b36; --text: #f3e9ff; --muted: #b9a2d8; --row: #2f2242; --line: #3a2a52;

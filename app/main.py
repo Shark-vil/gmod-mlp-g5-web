@@ -614,6 +614,21 @@ def editor_page(u: str):
     return _page("editor.html")
 
 
+@app.get("/songs", include_in_schema=False)
+def songs_page():
+    return _page("songs.html")
+
+
+@app.get("/songs/{u}", include_in_schema=False)
+def song_page(u: str):
+    return _page("songs.html")
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page():
+    return _page("admin.html")  # the admin API checks the login
+
+
 @app.exception_handler(500)
 async def internal(_, exc):
     return JSONResponse({"ok": False, "error": "internal"}, status_code=500)

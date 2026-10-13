@@ -35,7 +35,7 @@
 <div class="bar"></div>
 <main>
   <div class="top"><b>Maretime Bay</b><span id="account"></span></div>
-  <nav class="links"><a href="/">Рекорды</a><a href="/me" class="on">Моя статистика</a></nav>
+  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/me" class="on">Моя статистика</a></nav>
   <div id="out" class="card msg">Загрузка…</div>
   <div id="page" hidden>
     <div class="card who"><img id="ava" alt=""><div><h1 id="nick"></h1><a id="prof" target="_blank" rel="noopener">Профиль Steam</a></div></div>
@@ -48,7 +48,7 @@
           <input name="title" maxlength="80" placeholder="Название песни" required aria-label="Название">
           <input name="artist" maxlength="80" placeholder="Исполнитель (необязательно)" aria-label="Исполнитель">
           <input class="file" type="file" name="file" accept=".mp3,.ogg,.wav,.flac,.m4a,.opus,audio/*" required aria-label="Файл песни">
-          <div class="row"><button class="btn main" id="upBtn">Загрузить и открыть редактор</button><span class="hint" id="upMsg">до 15 МБ, 20 с — 5 мин; ноты расставятся сами, потом их можно поправить</span></div>
+          <div class="row"><button class="btn main" id="upBtn">Загрузить и открыть редактор</button><span class="hint" id="upMsg">до 40 МБ, 20 с — 5 мин; ноты расставятся сами, потом их можно поправить</span></div>
           <progress id="upBar" value="0" max="1" hidden></progress>
         </form>
       </div>
@@ -81,11 +81,12 @@ async function loadSongs() {
     const notes = s.chart ? s.chart.t.length + " нот" : "";
     sub.textContent = [s.artist, mmss(s.len), s.bpm ? s.bpm + " BPM" : "", notes, ANALYSIS[s.analysis] || ""].filter(Boolean).join(" · ");
     if (s.analysis === "queued" || s.analysis === "running") busy = true;
+    if (s.published && s.status !== "approved") { const pc = document.createElement("span"); pc.className = "chip ok"; pc.textContent = "опубликована v" + s.published.version; t.appendChild(pc); }
     const act = document.createElement("div"); act.className = "act";
     const ed = document.createElement("a"); ed.className = "btn main"; ed.textContent = "Редактор"; ed.href = "/editor/" + s.uuid; act.appendChild(ed);
-    if (s.status === "draft") {
+    if (!s.published && ["draft", "built", "rejected"].includes(s.status)) {
       const del = document.createElement("button"); del.className = "btn"; del.textContent = "Удалить";
-      del.onclick = async () => { if (!confirm("Удалить черновик «" + s.title + "»?")) return; await fetch("/api/v1/songs/" + s.uuid, { method: "DELETE" }); loadSongs(); };
+      del.onclick = async () => { if (!confirm("Удалить песню «" + s.title + "» вместе со звуком?")) return; await fetch("/api/v1/songs/" + s.uuid, { method: "DELETE" }); loadSongs(); };
       act.appendChild(del);
     }
     row.appendChild(t); row.appendChild(act); row.appendChild(sub);
@@ -99,7 +100,7 @@ $("up").addEventListener("submit", e => {
   e.preventDefault();
   const form = $("up"), fd = new FormData(form), bar = $("upBar"), msg = $("upMsg"), btn = $("upBtn");
   const f = form.file.files[0];
-  if (f && f.size > 15 * 1024 * 1024) { msg.textContent = "Файл больше 15 МБ"; return; }
+  if (f && f.size > 40 * 1024 * 1024) { msg.textContent = "Файл больше 40 МБ"; return; }
   const x = new XMLHttpRequest();
   x.open("POST", "/api/v1/songs");
   bar.hidden = false; btn.disabled = true; msg.textContent = "Загружается…";

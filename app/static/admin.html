@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Админка — Maretime Bay</title>
+<link rel="stylesheet" href="/static/site.css">
+<style>
+  main { max-width: 980px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tabs .btn.on { background: var(--pink); color: #fff; }
+  .filters { display: grid; grid-template-columns: 1fr 200px; gap: 8px; margin-bottom: 10px; }
+  .song { padding: 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+  .song:first-child { border-top: 0; }
+  .song .t { font-weight: 600; overflow-wrap: anywhere; }
+  .song .sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .song .sub a { color: var(--muted); }
+  .song audio { width: 100%; height: 34px; }
+  .song .act { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--row); margin-left: 6px; font-weight: 400; }
+  .chip.ok { background: #d8f5e2; color: #20683a; } .chip.no { background: #fbe0e0; color: #8a2a2a; } .chip.wait { background: #fff1c7; color: #6b5200; }
+  @media (prefers-color-scheme: dark) { .chip.ok { background: #1f4a30; color: #bff0cf; } .chip.no { background: #4d2424; color: #f5c8c8; } .chip.wait { background: #4a3d12; color: #f6e2a0; } }
+  .btn.danger { background: #fbe0e0; color: #8a2a2a; }
+  @media (prefers-color-scheme: dark) { .btn.danger { background: #4d2424; color: #f5c8c8; } }
+  .empty, .msg { padding: 18px; text-align: center; color: var(--muted); }
+  /* the list field (as in tg-pony-moderator): lines / commas / one by one, chips, .txt import */
+  .lf { padding: 12px; }
+  .lf-modes { display: flex; gap: 0; margin-bottom: 8px; flex-wrap: wrap; align-items: center; }
+  .lf-mode { border: 1px solid var(--line); background: var(--card); color: var(--muted); padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .lf-mode:not(:first-child) { border-left: 0; }
+  .lf-mode:first-child { border-radius: 8px 0 0 8px; } .lf-mode:nth-child(3) { border-radius: 0 8px 8px 0; }
+  .lf-mode.active { background: var(--row); color: var(--text); }
+  .lf textarea { width: 100%; min-height: 180px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--card); color: var(--text); font: 14px/1.5 inherit; resize: vertical; }
+  .lf-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .lf-chips:not(:empty) { margin-bottom: 10px; }
+  .lf-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--row); border: 1px solid var(--line); border-radius: 999px; padding: 3px 5px 3px 11px; font-size: 13px; word-break: break-all; }
+  .lf-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 3px; }
+  .lf-x:hover { color: #c0392b; }
+  .lf-addrow { display: flex; gap: 8px; }
+  .lf-foot { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .lf-foot span { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="bar"></div>
+<main>
+  <div class="top"><b>Maretime Bay · админка</b><span id="account"></span></div>
+  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/me">Моя статистика</a><a href="/admin" class="on">Админка</a><a href="/api/docs">API</a></nav>
+  <div id="out" class="card msg">Загрузка…</div>
+  <div id="page" hidden>
+    <div class="tabs">
+      <button class="btn on" data-tab="pending">На проверке</button>
+      <button class="btn" data-tab="all">Все песни</button>
+      <button class="btn" data-tab="words">Запрещённые слова</button>
+    </div>
+    <div id="tab-songs">
+      <div class="filters" id="filters" hidden>
+        <input id="q" type="search" placeholder="Название, исполнитель, автор, SteamID, uuid, номер мода" aria-label="Поиск">
+        <select id="status" aria-label="Статус"><option value="">все статусы</option><option value="draft">черновик</option><option value="built">мод собран</option>
+          <option value="pending">на проверке</option><option value="approved">одобрена</option><option value="rejected">отклонена</option></select>
+      </div>
+      <div class="card" id="rows"></div>
+    </div>
+    <div id="tab-words" hidden>
+      <div class="card lf" id="lf">
+        <div class="lf-modes">
+          <button type="button" class="lf-mode" data-mode="lines">по строкам</button>
+          <button type="button" class="lf-mode" data-mode="comma">через запятую</button>
+          <button type="button" class="lf-mode" data-mode="add">по одному</button>
+          <button type="button" class="btn lf-import" style="margin-left:8px" title="Добавить строки из .txt (дубликаты уберутся)">Загрузить .txt</button>
+          <input type="file" class="lf-file" accept=".txt,text/plain" hidden>
+        </div>
+        <textarea class="lf-text" placeholder="по одному слову на строку" aria-label="Запрещённые слова"></textarea>
+        <div class="lf-add" hidden>
+          <div class="lf-chips"></div>
+          <div class="lf-addrow"><input type="text" class="lf-input" placeholder="слово, затем Enter или «Добавить»"><button type="button" class="btn lf-addbtn">Добавить</button></div>
+        </div>
+        <div class="lf-foot"><button class="btn main" id="saveWords">Сохранить</button><span id="wordsMsg">Песни, в названии или исполнителе которых есть такое слово, скрываются из списка и из игры (не удаляются).</span></div>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="/static/site.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined && text !== null) e.textContent = text; if (cls) e.className = cls; return e; }
+function a(text, href) { const x = el("a", text); x.href = href; x.target = "_blank"; x.rel = "noopener"; return x; }
+function mmss(v) { v = Math.round(v || 0); return Math.floor(v / 60) + ":" + String(v % 60).padStart(2, "0"); }
+function when(t) { return t ? new Date(t * 1000).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "—"; }
+const STATUS = { draft: ["черновик", ""], built: ["мод собран", ""], pending: ["на проверке", "wait"], approved: ["одобрена", "ok"], rejected: ["отклонена", "no"] };
+let tab = "pending";
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); alert("Не получилось: " + (j.detail || r.status)); return null; }
+  return r.json();
+}
+
+function row(s) {
+  const d = el("div", null, "song");
+  const st = STATUS[s.status] || [s.status, ""];
+  const t = el("div", s.title, "t"); t.appendChild(el("span", st[0], "chip " + st[1]));
+  if (s.published) t.appendChild(el("span", "в игре v" + s.published.version, "chip ok"));
+  if (s.hidden) t.appendChild(el("span", "скрыта словом", "chip no"));
+  if (s.owner_banned) t.appendChild(el("span", "автор забанен", "chip no"));
+  const sub = el("div", null, "sub");
+  sub.append([s.artist, mmss(s.len), s.bpm ? s.bpm + " BPM" : "", s.chart ? s.chart.t.length + " нот" : ""].filter(Boolean).join(" · ") + " · автор ");
+  sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile)); sub.append(" (" + s.owner + ") · изменена " + when(s.updated));
+  if (s.workshop) { sub.append(" · "); sub.appendChild(a("мод " + s.wsid, s.workshop)); }
+  if (s.reason) sub.append(" · причина: " + s.reason);
+  const au = el("audio"); au.controls = true; au.preload = "none"; au.src = "/api/v1/songs/" + s.uuid + "/full.ogg";
+  const act = el("div", null, "act");
+  const btn = (text, cls, fn) => { const b = el("button", text, "btn " + (cls || "")); b.onclick = fn; act.appendChild(b); return b; };
+  if (s.status === "pending") {
+    btn("Одобрить", "main", async () => { if (await api("POST", `/api/v1/admin/songs/${s.uuid}/approve`)) load(); });
+    btn("Отклонить", "", async () => { const reason = prompt("Причина (её увидит автор):", ""); if (reason === null) return; if (await api("POST", `/api/v1/admin/songs/${s.uuid}/reject`, { reason })) load(); });
+  }
+  const ed = el("a", "Ноты в редакторе", "btn"); ed.href = "/editor/" + s.uuid; ed.target = "_blank"; act.appendChild(ed);
+  if (s.status === "pending" || s.status === "built" || s.status === "approved") { const z = el("a", "Мод (.zip)", "btn"); z.href = `/api/v1/songs/${s.uuid}/mod.zip`; act.appendChild(z); }
+  btn(s.owner_banned ? "Разбанить автора" : "Забанить автора", "", async () => {
+    const ban = !s.owner_banned;
+    const reason = ban ? prompt("Причина бана автора " + (s.owner_nick || s.owner) + ":", "") : "";
+    if (reason === null) return;
+    if (await api("POST", `/api/v1/admin/users/${s.owner}/ban`, { banned: ban, reason })) load();
+  });
+  btn("Удалить", "danger", async () => { if (!confirm("Удалить песню «" + s.title + "» насовсем (вместе со звуком)?")) return; if (await api("DELETE", "/api/v1/songs/" + s.uuid)) load(); });
+  d.append(t, sub, au, act);
+  return d;
+}
+
+let qTimer = null;
+async function load() {
+  if (tab === "words") return;
+  const box = $("rows");
+  const status = tab === "pending" ? "pending" : $("status").value;
+  const res = await (await fetch(`/api/v1/admin/songs?status=${status}&q=${encodeURIComponent(tab === "all" ? $("q").value : "")}`)).json();
+  box.textContent = "";
+  if (!res.songs || !res.songs.length) { box.appendChild(el("div", tab === "pending" ? "Очередь пуста" : "Ничего не нашлось", "empty")); return; }
+  res.songs.forEach(s => box.appendChild(row(s)));
+}
+
+document.querySelectorAll(".tabs .btn").forEach(b => b.onclick = () => {
+  tab = b.dataset.tab;
+  document.querySelectorAll(".tabs .btn").forEach(x => x.classList.toggle("on", x === b));
+  $("tab-songs").hidden = tab === "words"; $("tab-words").hidden = tab !== "words"; $("filters").hidden = tab !== "all";
+  if (tab === "words") loadWords(); else load();
+});
+$("q").addEventListener("input", () => { clearTimeout(qTimer); qTimer = setTimeout(load, 250); });
+$("status").onchange = load;
+
+// ---- the list field: the same three modes as tg-pony-moderator (lines / commas / one by one + chips), .txt import
+const lf = $("lf"), ta = lf.querySelector(".lf-text"), addWrap = lf.querySelector(".lf-add"), chips = lf.querySelector(".lf-chips"), input = lf.querySelector(".lf-input");
+const LS = "lf-mode:ban_words";
+const parseItems = s => (s || "").split(/[\n,]/).map(x => x.trim()).filter(Boolean);
+const items = () => parseItems(ta.value);
+const write = (arr, sep) => { ta.value = arr.join(sep); };
+function renderChips() {
+  chips.textContent = "";
+  items().forEach((v, i) => {
+    const c = el("span", null, "lf-chip"); c.appendChild(document.createTextNode(v));
+    const x = el("button", "×", "lf-x"); x.type = "button"; x.setAttribute("aria-label", "убрать");
+    x.onclick = () => { const arr = items(); arr.splice(i, 1); write(arr, "\n"); renderChips(); };
+    c.appendChild(x); chips.appendChild(c);
+  });
+}
+function setMode(m, save) {
+  lf.querySelectorAll(".lf-mode").forEach(b => b.classList.toggle("active", b.dataset.mode === m));
+  if (m === "add") { write(items(), "\n"); ta.hidden = true; addWrap.hidden = false; renderChips(); }
+  else { addWrap.hidden = true; ta.hidden = false; write(items(), m === "comma" ? ", " : "\n"); }
+  if (save) { try { localStorage.setItem(LS, m); } catch (e) {} }
+}
+function addFromInput() { const arr = items(); parseItems(input.value).forEach(t => { if (!arr.includes(t)) arr.push(t); }); write(arr, "\n"); input.value = ""; renderChips(); }
+lf.querySelectorAll(".lf-mode").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
+lf.querySelector(".lf-addbtn").onclick = addFromInput;
+input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addFromInput(); } });
+const importBtn = lf.querySelector(".lf-import"), fileInput = lf.querySelector(".lf-file");
+importBtn.onclick = () => fileInput.click();
+fileInput.onchange = () => {
+  const file = fileInput.files && fileInput.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const lines = String(reader.result || "").split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l && l.charAt(0) !== "#");
+    const cur = items(), seen = new Set(cur.map(v => v.toLowerCase()));
+    let added = 0;
+    lines.forEach(v => { if (!seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); cur.push(v); added++; } });
+    write(cur, "\n"); if (!addWrap.hidden) renderChips();
+    const label = importBtn.textContent;
+    importBtn.textContent = added ? "Добавлено: " + added : (lines.length ? "Уже есть в списке" : "Файл пуст");
+    setTimeout(() => { importBtn.textContent = label; }, 2500);
+  };
+  reader.readAsText(file, "utf-8"); fileInput.value = "";
+};
+async function loadWords() {
+  const res = await (await fetch("/api/v1/admin/banwords")).json();
+  write(res.words || [], "\n");
+  let m = "lines"; try { m = localStorage.getItem(LS) || "lines"; } catch (e) {}
+  setMode(m, false);
+}
+$("saveWords").onclick = async () => {
+  const res = await api("PUT", "/api/v1/admin/banwords", { words: items() });
+  if (res) { $("wordsMsg").textContent = "Сохранено: " + res.words.length + " слов(а)."; write(res.words, ta.hidden ? "\n" : (lf.querySelector(".lf-mode.active").dataset.mode === "comma" ? ", " : "\n")); if (!addWrap.hidden) renderChips(); }
+};
+
+document.addEventListener("mlp-me", e => {
+  const me = e.detail;
+  if (!me) { $("out").innerHTML = 'Админка — после входа. <button class="btn main" id="loginHere">Войти через Steam</button>'; $("loginHere").onclick = () => window.mlpLogin("/admin"); return; }
+  if (!me.admin) { $("out").textContent = "Это страница админов сайта."; return; }
+  $("out").hidden = true; $("page").hidden = false;
+  load();
+});
+</script>
+</body>
+</html>
