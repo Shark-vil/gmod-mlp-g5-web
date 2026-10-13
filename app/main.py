@@ -84,6 +84,9 @@ MIN_TIME = {"time_skyrace": 6, "time_groundrace": 4}
 MIN_TIME_DEFAULT = 3
 # a best score can't be higher than this (the dance minigame: every note perfect at the top combo ≈ 1300)
 MAX_BEST = {"best_dance": 1500}
+# kept per day for the charts (GET /api/v1/history/{steamid})
+HISTORY_KEYS = ("stars", "playtime")
+HISTORY_MAX_DAYS = 120
 
 # the game's collectibles: "bits" items need this many all-time stars (game value × half the mod's default
 # mlp_vanity_scale of 0.1 — servers may lower it); the others are gifts / defaults
@@ -130,6 +133,7 @@ def init():
             CREATE TABLE IF NOT EXISTS flags ( ts INTEGER, server TEXT, steamid TEXT, key TEXT, old REAL, new REAL, kept REAL );
             CREATE INDEX IF NOT EXISTS idx_stats_key ON server_stats ( key );
             CREATE INDEX IF NOT EXISTS idx_installs_ip ON installs ( ip, first_seen );
+            CREATE TABLE IF NOT EXISTS stats_daily ( steamid TEXT, day TEXT, key TEXT, value REAL, PRIMARY KEY ( steamid, day, key ) );
             """
         )
 
@@ -333,6 +337,16 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
                             flag(con, now, server, sid, key, old, value, kept)
                             clamped += 1
                 con.execute("REPLACE INTO server_stats ( server, steamid, key, value, updated ) VALUES ( ?, ?, ?, ?, ? )", (server, sid, key, kept, now))
+            # history for the charts: the player's total (all servers) at the end of each day (UTC)
+            for key in HISTORY_KEYS:
+                if key in stats:
+                    total = con.execute("SELECT SUM(value) AS v FROM server_stats WHERE steamid = ? AND key = ?", (sid, key)).fetchone()["v"] or 0
+                    if not con.execute("SELECT 1 FROM stats_daily WHERE steamid = ? AND key = ? LIMIT 1", (sid, key)).fetchone():
+                        # the first record: a baseline under yesterday, so today shows only today's growth
+                        con.execute("INSERT OR IGNORE INTO stats_daily ( steamid, day, key, value ) VALUES ( ?, ?, ?, ? )",
+                                    (sid, time.strftime("%Y-%m-%d", time.gmtime(now - 86400)), key, total))
+                    con.execute("REPLACE INTO stats_daily ( steamid, day, key, value ) VALUES ( ?, ?, ?, ? )",
+                                (sid, time.strftime("%Y-%m-%d", time.gmtime(now)), key, total))
             items = p.get("items") if isinstance(p.get("items"), dict) else {}
             for kind, count in list(items.items())[:16]:
                 count = num(count)
@@ -486,6 +500,27 @@ def player(steamid: str):
         items = {r["kind"]: r["c"] for r in con.execute("SELECT kind, COUNT(*) AS c FROM unlocks WHERE steamid = ? GROUP BY kind", (steamid,))}
         chars = [r["character"] for r in con.execute("SELECT character FROM characters WHERE steamid = ?", (steamid,))]
     return {"steamid": steamid, "nick": p["nick"], "last_seen": p["last_seen"], "stats": stats, "items": items, "characters": chars}
+
+
+@app.get("/api/v1/history/{steamid}")
+def player_history(steamid: str, days: int = 37):
+    """The day's last total of stars / play time: { "series": { "stars": [ [ "YYYY-MM-DD", value ], … ] } }."""
+    if not SID_RE.match(steamid):
+        raise HTTPException(400, "bad steamid")
+    days = max(1, min(days, HISTORY_MAX_DAYS))
+    since = time.strftime("%Y-%m-%d", time.gmtime(time.time() - days * 86400))
+    series = {k: [] for k in HISTORY_KEYS}
+    with db() as con:
+        for r in con.execute("SELECT day, key, value FROM stats_daily WHERE steamid = ? AND day >= ? ORDER BY day", (steamid, since)):
+            if r["key"] in series:
+                series[r["key"]].append([r["day"], r["value"]])
+        # the last value before the window, so the first days aren't empty
+        for k in HISTORY_KEYS:
+            prev = con.execute("SELECT day, value FROM stats_daily WHERE steamid = ? AND key = ? AND day < ? ORDER BY day DESC LIMIT 1",
+                               (steamid, k, since)).fetchone()
+            if prev:
+                series[k].insert(0, [prev["day"], prev["value"]])
+    return {"steamid": steamid, "series": series}
 
 
 @app.get("/api/v1/stats/keys")
