@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мои песни — Maretime Bay</title>
+<link rel="stylesheet" href="/static/site.css">
+<style>
+  .who { display: flex; align-items: center; gap: 12px; padding: 12px; }
+  .who img { width: 56px; height: 56px; border-radius: 12px; }
+  .who h1 { margin: 0; font-size: 20px; }
+  .who a { color: var(--muted); font-size: 13px; }
+  section { margin-top: 14px; }
+  section > h2 { font-size: 15px; margin: 0 0 8px 2px; }
+  .stats { padding: 4px 12px 12px; }
+  .song { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .song:first-child { border-top: 0; }
+  .song .t { font-weight: 600; overflow-wrap: anywhere; }
+  .song .sub { color: var(--muted); font-size: 13px; }
+  .song .act { display: flex; gap: 6px; grid-row: span 2; }
+  .chip { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--row); margin-left: 6px; }
+  .chip.ok { background: #d8f5e2; color: #20683a; }
+  .chip.no { background: #fbe0e0; color: #8a2a2a; }
+  @media (prefers-color-scheme: dark) { .chip.ok { background: #1f4a30; color: #bff0cf; } .chip.no { background: #4d2424; color: #f5c8c8; } }
+  form.up { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; }
+  form.up .file, form.up .row { grid-column: 1 / -1; }
+  form.up .row { display: flex; gap: 10px; align-items: center; }
+  form.up .hint { color: var(--muted); font-size: 13px; }
+  progress { width: 100%; height: 8px; accent-color: var(--pink); }
+  .msg { padding: 14px; color: var(--muted); }
+  @media (max-width: 560px) { form.up { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="bar"></div>
+<main>
+  <div class="top"><b>Maretime Bay</b><span id="account"></span></div>
+  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs" class="on">Мои песни</a><a href="/me">Моя статистика</a></nav>
+  <div id="out" class="card msg">Загрузка…</div>
+  <div id="page" hidden>
+    <section>
+      <h2>Мои песни для «Танца»</h2>
+      <p class="hint" style="margin:0 0 8px 2px;color:var(--muted);font-size:13px">Загруженные песни хранятся на сайте: их можно открыть и поправить в любой момент без повторной загрузки.</p>
+      <div class="card" id="songs"></div>
+      <div class="card" style="margin-top:8px">
+        <form class="up" id="up">
+          <input name="title" maxlength="80" placeholder="Название песни" required aria-label="Название">
+          <input name="artist" maxlength="80" placeholder="Исполнитель (необязательно)" aria-label="Исполнитель">
+          <input class="file" type="file" name="file" accept=".mp3,.ogg,.wav,.flac,.m4a,.opus,audio/*" required aria-label="Файл песни">
+          <div class="row"><button class="btn main" id="upBtn">Загрузить и открыть редактор</button><span class="hint" id="upMsg">до 40 МБ, 20 с — 5 мин; ноты расставятся сами, потом их можно поправить</span></div>
+          <progress id="upBar" value="0" max="1" hidden></progress>
+        </form>
+      </div>
+    </section>
+  </div>
+</main>
+<script src="/static/site.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const STATUS = { draft: ["черновик", ""], built: ["мод собран", ""], pending: ["на проверке", ""], approved: ["одобрена", "ok"], rejected: ["отклонена", "no"] };
+const ANALYSIS = { queued: "ноты расставляются…", running: "ноты расставляются…", failed: "не удалось расставить ноты" };
+
+function mmss(v) { v = Math.round(v || 0); return Math.floor(v / 60) + ":" + String(v % 60).padStart(2, "0"); }
+
+async function loadSongs() {
+  const box = $("songs");
+  let list = [];
+  try { list = (await (await fetch("/api/v1/songs/mine")).json()).songs || []; } catch (e) {}
+  if (!list.length) { box.innerHTML = '<div class="msg">Песен пока нет — загрузите первую ниже.</div>'; return; }
+  box.textContent = "";
+  let busy = false;
+  for (const s of list) {
+    const row = document.createElement("div"); row.className = "song";
+    const st = STATUS[s.status] || [s.status, ""];
+    const t = document.createElement("div"); t.className = "t"; t.textContent = s.title;
+    const chip = document.createElement("span"); chip.className = "chip " + st[1]; chip.textContent = st[0]; t.appendChild(chip);
+    const sub = document.createElement("div"); sub.className = "sub";
+    const notes = s.chart ? s.chart.t.length + " нот" : "";
+    sub.textContent = [s.artist, mmss(s.len), s.bpm ? s.bpm + " BPM" : "", notes, ANALYSIS[s.analysis] || ""].filter(Boolean).join(" · ");
+    if (s.analysis === "queued" || s.analysis === "running") busy = true;
+    if (s.published && s.status !== "approved") { const pc = document.createElement("span"); pc.className = "chip ok"; pc.textContent = "опубликована v" + s.published.version; t.appendChild(pc); }
+    const act = document.createElement("div"); act.className = "act";
+    const ed = document.createElement("a"); ed.className = "btn main"; ed.textContent = "Редактор"; ed.href = "/editor/" + s.uuid; act.appendChild(ed);
+    if (!s.published && ["draft", "built", "rejected"].includes(s.status)) {
+      const del = document.createElement("button"); del.className = "btn"; del.textContent = "Удалить";
+      del.onclick = async () => { if (!confirm("Удалить песню «" + s.title + "» вместе со звуком?")) return; await fetch("/api/v1/songs/" + s.uuid, { method: "DELETE" }); loadSongs(); };
+      act.appendChild(del);
+    }
+    row.appendChild(t); row.appendChild(act); row.appendChild(sub);
+    box.appendChild(row);
+  }
+  if (busy) setTimeout(loadSongs, 3000); // the notes are being placed: refresh
+}
+
+// the upload: XHR for the progress bar, then straight to the editor
+$("up").addEventListener("submit", e => {
+  e.preventDefault();
+  const form = $("up"), fd = new FormData(form), bar = $("upBar"), msg = $("upMsg"), btn = $("upBtn");
+  const f = form.file.files[0];
+  if (f && f.size > 40 * 1024 * 1024) { msg.textContent = "Файл больше 40 МБ"; return; }
+  const x = new XMLHttpRequest();
+  x.open("POST", "/api/v1/songs");
+  bar.hidden = false; btn.disabled = true; msg.textContent = "Загружается…";
+  x.upload.onprogress = ev => { if (ev.lengthComputable) bar.value = ev.loaded / ev.total; };
+  x.onload = () => {
+    btn.disabled = false; bar.hidden = true;
+    let r = {}; try { r = JSON.parse(x.responseText); } catch (e2) {}
+    if (x.status === 200 && r.uuid) { location.href = "/editor/" + r.uuid; return; }
+    const why = { 413: "Файл слишком большой", 429: r.detail && r.detail.startsWith("at most") ? "Слишком много черновиков — закончите или удалите один" : "Слишком много загрузок, попробуйте позже", 401: "Нужно войти через Steam" }[x.status];
+    msg.textContent = why || ("Не получилось: " + (r.detail || x.status));
+  };
+  x.onerror = () => { btn.disabled = false; bar.hidden = true; msg.textContent = "Нет связи с сайтом"; };
+  x.send(fd);
+});
+
+document.addEventListener("mlp-me", async e => {
+  const me = e.detail;
+  if (!me) {
+    $("out").innerHTML = 'Здесь ваши песни для «Танца»: загрузка, редактор нот, сборка мода. <button class="btn main" id="loginHere">Войти через Steam</button>';
+    $("loginHere").onclick = () => window.mlpLogin("/my-songs");
+    return;
+  }
+  $("out").hidden = true; $("page").hidden = false;
+  loadSongs();
+});
+</script>
+</body>
+</html>

@@ -19,7 +19,8 @@ Titles / artists with a word of the admins' BAN_WORDS list are hidden from the p
   GET    /api/v1/songs/{uuid}           the song: published copy for everybody, working copy + beat grid for the author / admins
   GET    /api/v1/songs/{uuid}/full.ogg  the full track (author / admins)
   GET    /api/v1/songs/{uuid}/preview.ogg   the published fragment (?work=1: the working one, author / admins)
-  PUT    /api/v1/songs/{uuid}/chart     the editor's save (author, draft)
+  PUT    /api/v1/songs/{uuid}/chart     the editor's save (author, draft): notes, holds, keys, preview fragment, title
+  POST   /api/v1/songs/{uuid}/trim      { start, end } cut the song out of the uploaded source (author, draft); the notes move with it
   POST   /api/v1/songs/{uuid}/auto      redo the automatic chart (author, draft)
   POST   /api/v1/songs/{uuid}/build     the working copy -> the song mod: status "built", SHA256 of its files kept
   GET    /api/v1/songs/{uuid}/mod.zip   the song mod (author / admins)
@@ -72,7 +73,9 @@ _db = None
 _dir = None
 _work = threading.Semaphore(1)  # one analysis at a time (librosa is heavy)
 
-LIVE_COLS = {"live_title": "TEXT", "live_artist": "TEXT", "live_chart": "TEXT", "live_hashes": "TEXT", "live_wsid": "TEXT",
+KEYS = ("", "up", "down", "left", "right", "act")  # a note's key: "" = random (a new one every game), like the game's own
+TRIM_FADE = 0.4  # seconds of fade at a cut edge (no click)
+LIVE_COLS = {"trim_start": "REAL DEFAULT 0", "trim_end": "REAL", "src_len": "REAL", "live_title": "TEXT", "live_artist": "TEXT", "live_chart": "TEXT", "live_hashes": "TEXT", "live_wsid": "TEXT",
              "live_len": "REAL", "live_beat": "REAL", "live_version": "INTEGER DEFAULT 0", "live_at": "INTEGER", "version": "INTEGER DEFAULT 0"}
 
 
@@ -222,6 +225,7 @@ def working(r):
             "hashes": json.loads(r["hashes"]) if r["hashes"] else None,
             "beats": json.loads(r["beats"]) if r["beats"] else [],
             "has_full": os.path.exists(os.path.join(song_dir(r["uuid"]), "full.ogg")),
+            "trim_start": r["trim_start"] or 0, "trim_end": r["trim_end"], "src_len": r["src_len"] or r["len"],
             "published": published(r)}
 
 
@@ -328,23 +332,30 @@ def upload(request: Request, file: UploadFile = File(...), title: str = Form(...
         os.makedirs(song_dir(u), exist_ok=True)
         try:
             _ffmpeg(["-i", src, "-vn", "-map_metadata", "-1", "-ac", "2", "-ar", "44100", "-c:a", "libvorbis", "-q:a", "4",
-                     os.path.join(song_dir(u), "full.ogg")])
+                     os.path.join(song_dir(u), "source.ogg")])
+            shutil.copyfile(os.path.join(song_dir(u), "source.ogg"), os.path.join(song_dir(u), "full.ogg"))
         except Exception:
             shutil.rmtree(song_dir(u), ignore_errors=True)
             raise HTTPException(400, "the file couldn't be converted")
     with _db() as con:
-        con.execute("INSERT INTO songs ( uuid, owner, title, artist, status, created, updated, len, analysis, version, live_version ) "
-                    "VALUES ( ?, ?, ?, ?, 'draft', ?, ?, ?, 'queued', 0, 0 )", (u, user["steamid"], title, artist, now, now, round(length, 2)))
+        con.execute("INSERT INTO songs ( uuid, owner, title, artist, status, created, updated, len, src_len, trim_start, analysis, version, live_version ) "
+                    "VALUES ( ?, ?, ?, ?, 'draft', ?, ?, ?, ?, 0, 'queued', 0, 0 )", (u, user["steamid"], title, artist, now, now, round(length, 2), round(length, 2)))
     start_analysis(u)
     return {"uuid": u}
 
 
-def check_chart(times, large, length):
-    """sorted notes + their holds, or HTTPException with what's wrong"""
+def check_chart(times, large, length, keys=None):
+    """sorted notes + their holds + their keys ("" = random), or HTTPException with what's wrong"""
     if not times or len(times) > 3000:
         raise HTTPException(400, "1-3000 notes")
+    keys = list(keys or [])
+    if keys and len(keys) != len(times):
+        raise HTTPException(400, "one key per note")
+    if any(k not in KEYS for k in keys):
+        raise HTTPException(400, "keys: up, down, left, right, act or empty (random)")
     order = sorted(range(len(times)), key=lambda i: times[i])
     large = {order.index(i - 1) + 1 for i in large if 1 <= i <= len(times)}  # the holds follow their notes when sorted
+    keys = [keys[i] for i in order] if keys else []
     times = [times[i] for i in order]
     for i, t in enumerate(times):
         if t < 0 or t > length:
@@ -353,7 +364,8 @@ def check_chart(times, large, length):
             raise HTTPException(400, f"notes {i} and {i + 1} are closer than {MIN_NOTE_GAP} s")
         if (i + 1) in large and i + 1 < len(times) and times[i + 1] - t < HOLD_LEN + 0.05:
             raise HTTPException(400, f"note {i + 2} starts inside the hold {i + 1}")
-    return times, large
+    keys = [("" if (i + 1) in large else k) for i, k in enumerate(keys)]  # a hold takes any key
+    return times, large, (keys if any(keys) else [])
 
 
 def _author_draft(request, r):
@@ -370,10 +382,11 @@ async def save_chart(u: str, request: Request):
         body = await request.json()
         times = [round(float(x), 3) for x in body.get("t", [])]
         large = {int(i) for i in body.get("large", [])}
+        keys = [str(k or "") for k in body.get("keys", [])]
     except Exception:
         raise HTTPException(400, "bad chart")
     length = r["len"] or 0
-    times, large = check_chart(times, large, length)
+    times, large, keys = check_chart(times, large, length, keys)
     ps = round(float(body.get("preview_start", r["preview_start"] or 0)), 2)
     pl = round(float(body.get("preview_len", r["preview_len"] or PREVIEW_LEN)), 2)
     if not 10 <= pl <= 30 or ps < 0 or ps + pl > length + 0.01:
@@ -381,12 +394,82 @@ async def save_chart(u: str, request: Request):
     title = str(body.get("title", r["title"]))[:80].strip() or r["title"]
     artist = str(body.get("artist", r["artist"] or ""))[:80].strip()
     chart = {"t": times, "large": sorted(large)}
+    if keys:
+        chart["keys"] = keys
     if (ps, pl) != (r["preview_start"], r["preview_len"]) and os.path.exists(os.path.join(song_dir(u), "full.ogg")):
         make_preview(u, ps, pl)
     with _db() as con:
         con.execute("UPDATE songs SET chart = ?, preview_start = ?, preview_len = ?, title = ?, artist = ?, updated = ? WHERE uuid = ?",
                     (json.dumps(chart), ps, pl, title, artist, _now(), u))
     return {"ok": True, "chart": chart}
+
+
+@router.post("/api/v1/songs/{u}/trim")
+async def trim(u: str, request: Request):
+    """{ start, end }: seconds of the uploaded song (the source) to keep; the notes and the beat grid move with it,
+    notes outside go. { start: 0, end: null } = the whole song again."""
+    r = _row(u)
+    _author_draft(request, r)
+    src = os.path.join(song_dir(u), "source.ogg")
+    if not os.path.exists(src):
+        raise HTTPException(409, "this song has no stored source (uploaded before trimming existed)")
+    body = await request.json()
+    src_len = r["src_len"] or r["len"] or 0
+    try:
+        start = max(0.0, round(float(body.get("start") or 0), 2))
+        end = body.get("end")
+        end = src_len if end in (None, "") else min(src_len, round(float(end), 2))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "bad start / end")
+    if end - start < MIN_SEC:
+        raise HTTPException(400, f"at least {MIN_SEC} seconds must stay")
+    whole = start <= 0.01 and end >= src_len - 0.01
+    full = os.path.join(song_dir(u), "full.ogg")
+    if whole:
+        shutil.copyfile(src, full)
+    else:
+        length = end - start
+        _ffmpeg(["-ss", f"{start:.2f}", "-t", f"{length:.2f}", "-i", src, "-af",
+                 f"afade=t=in:d={TRIM_FADE},afade=t=out:st={max(0, length - TRIM_FADE):.2f}:d={TRIM_FADE}",
+                 "-map_metadata", "-1", "-c:a", "libvorbis", "-q:a", "4", full])
+    new_len = round(_ffprobe_len(full) or (end - start), 2)
+    shift = (r["trim_start"] or 0) - start          # old song time -> new song time
+    chart = json.loads(r["chart"]) if r["chart"] else {"t": [], "large": []}
+    L, keys = set(chart.get("large", [])), chart.get("keys") or []
+    nt, nl, nk = [], [], []
+    for i, t in enumerate(chart.get("t", [])):
+        t2 = round(t + shift, 3)
+        if 0 <= t2 <= new_len - (HOLD_LEN if (i + 1) in L else 0):
+            nt.append(t2)
+            if (i + 1) in L:
+                nl.append(len(nt))
+            nk.append(keys[i] if i < len(keys) else "")
+    # the beat grid: the known beats moved, the rest of the new piece filled in by the song's tempo
+    # (a piece made longer again would have no grid where beats were cut off before)
+    old_beats = [b + shift for b in (json.loads(r["beats"]) if r["beats"] else [])]
+    step = r["beat"] or 0
+    beats = [b for b in old_beats if 0 <= b <= new_len]
+    if old_beats and step > 0.1:
+        t = min(old_beats) - step
+        while t >= 0:
+            beats.append(t)
+            t -= step
+        t = max(old_beats) + step
+        while t <= new_len:
+            beats.append(t)
+            t += step
+    beats = sorted(round(b, 3) for b in beats)
+    chart = {"t": nt, "large": nl}
+    if any(nk):
+        chart["keys"] = nk
+    ps = min(max(0.0, (r["preview_start"] or 0) + shift), max(0.0, new_len - (r["preview_len"] or PREVIEW_LEN)))
+    pl = min(r["preview_len"] or PREVIEW_LEN, new_len)
+    make_preview(u, ps, pl)
+    with _db() as con:
+        con.execute("UPDATE songs SET len = ?, trim_start = ?, trim_end = ?, chart = ?, beats = ?, preview_start = ?, preview_len = ?, "
+                    "updated = ? WHERE uuid = ?", (new_len, 0 if whole else start, None if whole else end, json.dumps(chart),
+                                                   json.dumps(beats), round(ps, 2), round(pl, 2), _now(), u))
+    return {"ok": True, "len": new_len, "notes": len(nt)}
 
 
 @router.post("/api/v1/songs/{u}/auto")
@@ -432,7 +515,7 @@ def mod_files(r):
     chart = json.loads(r["chart"])
     data = {"format": 1, "uuid": u, "title": r["title"], "artist": r["artist"] or "", "author": r["owner"],
             "file": f"sound/mlp_g5/songs/{u}.ogg", "len": r["len"], "beat": r["beat"] or 0.5,
-            "charts": [{"t": chart["t"], "large": chart["large"]}]}
+            "charts": [{"t": chart["t"], "large": chart["large"], **({"keys": chart["keys"]} if chart.get("keys") else {})}]}
     if SITE:
         data["site"] = f"{SITE}/songs/{u}"
     js = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
@@ -478,7 +561,7 @@ def build(u: str, request: Request):
     if r["analysis"] != "done" or not r["chart"] or not os.path.exists(os.path.join(song_dir(u), "full.ogg")):
         raise HTTPException(409, "the song isn't ready")
     chart = json.loads(r["chart"])
-    check_chart(chart["t"], set(chart["large"]), r["len"] or 0)
+    check_chart(chart["t"], set(chart["large"]), r["len"] or 0, chart.get("keys"))
     files = mod_files(r)
     hashes = {path: hashlib.sha256(data).hexdigest() for path, data in files.items()}
     with _db() as con:

@@ -30,12 +30,12 @@
 <div class="bar"></div>
 <main>
   <div class="top"><b>Maretime Bay · песни</b><span id="account"></span></div>
-  <nav class="links"><a href="/">Рекорды</a><a href="/songs" class="on">Песни</a><a href="/me">Моя статистика</a></nav>
+  <nav class="links"><a href="/">Рекорды</a><a href="/songs" class="on">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a></nav>
   <div id="list">
     <div class="bar2"><input id="q" type="search" placeholder="Найти песню, исполнителя или автора" aria-label="Поиск песен"></div>
     <div class="card" id="rows"><div class="empty">…</div></div>
     <div style="text-align:center;margin-top:10px"><button class="btn" id="more" hidden>Показать ещё</button></div>
-    <p class="note">Песни для мини-игры «Танец». Их делают игроки в редакторе (вкладка «Моя статистика») и выкладывают модом в Мастерскую;
+    <p class="note">Песни для мини-игры «Танец». Их делают игроки в редакторе (вкладка «Мои песни») и выкладывают модом в Мастерскую;
       в игре песню выбирают голосованием в лобби, мод скачивается сам. Здесь звучит только фрагмент.</p>
   </div>
   <div id="one" hidden></div>
@@ -70,7 +70,7 @@ async function list(reset) {
   try { res = await (await fetch(`/api/v1/songs?limit=30&offset=${offset}&q=${encodeURIComponent(q)}`)).json(); } catch (e) {}
   const box = $("rows");
   if (reset) box.textContent = "";
-  if (!res.songs.length && reset) { box.appendChild(el("div", q ? "Ничего не нашлось" : "Песен пока нет — загрузите первую в «Моя статистика»", "empty")); }
+  if (!res.songs.length && reset) { box.appendChild(el("div", q ? "Ничего не нашлось" : "Песен пока нет — загрузите первую в «Мои песни»", "empty")); }
   res.songs.forEach(s => box.appendChild(songRow(s)));
   offset += res.songs.length;
   $("more").hidden = offset >= res.total;

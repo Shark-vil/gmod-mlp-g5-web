@@ -609,6 +609,11 @@ def me_page():
     return _page("me.html")  # the login is checked by the API calls of the page
 
 
+@app.get("/my-songs", include_in_schema=False)
+def my_songs_page():
+    return _page("my-songs.html")
+
+
 @app.get("/editor/{u}", include_in_schema=False)
 def editor_page(u: str):
     return _page("editor.html")

@@ -23,6 +23,14 @@
   .side p { margin: 4px 0; font-size: 13px; color: var(--muted); }
   .warn { color: #b3471f; font-size: 13px; margin: 4px 0; }
   @media (prefers-color-scheme: dark) { .warn { color: #ffb08a; } }
+  .btn.hold { background: #ffe9a8; color: #6b4a00; }
+  .btn.del { background: #fbdcdc; color: #8a2a2a; }
+  .btn.undo { background: #e6dcff; color: #4a2c8a; }
+  @media (prefers-color-scheme: dark) { .btn.hold { background: #5a4710; color: #ffe39a; } .btn.del { background: #552626; color: #ffc9c9; } .btn.undo { background: #3b2e63; color: #d9ccff; } }
+  .keys { display: inline-flex; gap: 4px; align-items: center; }
+  .keys .btn { min-width: 36px; padding: 6px 8px; font-weight: 700; }
+  .keys .btn.on { outline: 2px solid var(--text); outline-offset: -2px; }
+  .keys .k-up { color: #1f6fd1; } .keys .k-down { color: #128a42; } .keys .k-left { color: #c56a00; } .keys .k-right { color: #c4246b; } .keys .k-act { color: #7a3ad6; }
   kbd { background: var(--row); border-radius: 4px; padding: 0 5px; font: 12px ui-monospace, monospace; }
   .status { font-size: 13px; color: var(--muted); margin-left: auto; }
   .msg { padding: 16px; color: var(--muted); }
@@ -41,7 +49,7 @@
   .pub a { color: var(--text); }
   .pub .ok { color: #20683a; } .pub .bad { color: #b3471f; }
   @media (prefers-color-scheme: dark) { .pub .ok { color: #9fe0b5; } .pub .bad { color: #ffb08a; } }
-  .locked .tools button:not(#play):not(#test):not(#pplay), .locked #title, .locked #artist, .locked #pstart, .locked #plen, .locked #phere { pointer-events: none; opacity: .45; }
+  .locked .tools button:not(#play):not(#test):not(#pplay), .locked #title, .locked #artist, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #keys { pointer-events: none; opacity: .45; }
   @media (max-width: 760px) { .head, .side { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -49,7 +57,7 @@
 <div class="bar"></div>
 <main>
   <div class="top"><b>Maretime Bay · редактор песни</b><span id="account"></span></div>
-  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/me">Моя статистика</a></nav>
+  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a></nav>
   <div id="out" class="card msg">Загрузка…</div>
   <div id="ed" hidden>
     <div class="card head">
@@ -57,6 +65,8 @@
       <input id="artist" maxlength="80" placeholder="Исполнитель" aria-label="Исполнитель">
       <span class="facts" id="facts"></span>
     </div>
+    <div class="card lane"><canvas id="cv" aria-label="Дорожка нот"></canvas></div>
+    <input type="range" class="scroll" id="scroll" min="0" max="1000" value="0" aria-label="Прокрутка">
     <div class="card tools" style="margin-top:8px">
       <button class="btn main" id="play" title="Пробел">▶ Играть</button>
       <span class="time" id="time">0:00.0</span>
@@ -64,21 +74,25 @@
       <label>Масштаб <button class="btn" id="zout" title="−">−</button><button class="btn" id="zin" title="+">+</button></label>
       <label>Привязка <select id="snap"><option value="0">нет</option><option value="1" selected>к удару</option><option value="2">½ удара</option><option value="4">¼ удара</option></select></label>
       <span class="sep"></span>
-      <button class="btn" id="hold" title="H">Удержание</button>
-      <button class="btn" id="del" title="Delete">Удалить ноту</button>
-      <button class="btn" id="undo" title="Ctrl+Z">↶ Отменить</button>
+      <button class="btn hold" id="hold" title="H">Удержание</button>
+      <button class="btn del" id="del" title="Delete">Удалить ноту</button>
+      <button class="btn undo" id="undo" title="Ctrl+Z">↶ Отменить</button>
+      <span class="sep"></span>
+      <span class="keys" id="keys" title="Направление выбранной ноты (1–5, 0 — случайно)">
+        <button class="btn k-up" data-k="up" title="1">↑</button><button class="btn k-down" data-k="down" title="2">↓</button>
+        <button class="btn k-left" data-k="left" title="3">←</button><button class="btn k-right" data-k="right" title="4">→</button>
+        <button class="btn k-act" data-k="act" title="5">E</button><button class="btn" data-k="" title="0 — своя случайная клавиша в каждой игре">🎲</button>
+      </span>
       <button class="btn" id="auto">Расставить автоматически</button>
       <span class="sep"></span>
       <button class="btn main" id="test">Проверить</button>
       <button class="btn main" id="save">Сохранить</button>
       <span class="status" id="status"></span>
     </div>
-    <div class="card lane"><canvas id="cv" aria-label="Дорожка нот"></canvas></div>
-    <input type="range" class="scroll" id="scroll" min="0" max="1000" value="0" aria-label="Прокрутка">
     <div class="side">
       <div class="card">
         <h3>Фрагмент для прослушивания</h3>
-        <p>Его услышат все в списке песен (полный трек сайт после проверки удаляет).</p>
+        <p>Его услышат все в общем списке песен.</p>
         <div class="tools" style="padding:4px 0">
           <label>Начало, с <input type="number" id="pstart" min="0" step="0.5" style="width:90px"></label>
           <label>Длина <select id="plen"><option>10</option><option>15</option><option selected>20</option><option>25</option><option>30</option></select> с</label>
@@ -88,11 +102,28 @@
         <p>На дорожке он подсвечен сверху.</p>
       </div>
       <div class="card">
+        <h3>Обрезка песни</h3>
+        <p>Оставьте нужный кусок загруженной песни (не меньше 20 с). Ноты сдвинутся вместе с ним, ноты вне куска уберутся.
+          Исходная песня хранится — обрезку можно поменять или вернуть всю песню.</p>
+        <div class="tools" style="padding:4px 0">
+          <label>Начало, с <input type="number" id="tstart" min="0" step="0.1" style="width:90px"></label>
+          <button class="btn" id="tsHere">С текущего места</button>
+          <label>Конец, с <input type="number" id="tend" min="0" step="0.1" style="width:90px"></label>
+          <button class="btn" id="teHere">По текущее место</button>
+        </div>
+        <div class="tools" style="padding:4px 0">
+          <button class="btn main" id="trim">Обрезать</button>
+          <button class="btn" id="untrim">Вся песня</button>
+          <span class="status" id="trimInfo"></span>
+        </div>
+      </div>
+      <div class="card">
         <h3>Как править</h3>
         <p>Клик по нижней части дорожки — поставить ноту или выбрать её; тяните, чтобы сдвинуть. <kbd>H</kbd> — удержание,
           <kbd>Delete</kbd> — удалить, <kbd>Ctrl</kbd>+<kbd>Z</kbd> — отменить, <kbd>Пробел</kbd> — играть / пауза.
           Клик по верхней части (волна) — перемотка; колесо — прокрутка, <kbd>Ctrl</kbd>+колесо — масштаб.</p>
-        <p>Клавиши нот (стрелка или «E») в игре выпадают случайно — как в самой игре.</p>
+        <p>Направление ноты: выберите ноту и нажмите ↑ ↓ ← → E (или <kbd>1</kbd>–<kbd>5</kbd>). 🎲 (<kbd>0</kbd>, так по умолчанию) —
+          в каждой игре своя случайная клавиша, как в самой игре. Удержание — любая клавиша.</p>
         <div id="warns"></div>
       </div>
     </div>
@@ -128,12 +159,13 @@ async function load() {
   if (!song.has_full) { $("out").textContent = "Полного трека нет на сайте — редактировать нельзя."; return; }
   $("out").textContent = "Загружается звук…";
   const audio = await (await fetch("/api/v1/songs/" + UUID + "/full.ogg")).arrayBuffer();
-  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
   buf = await ctx.decodeAudioData(audio);
   peaks = buildPeaks(buf);
   const ch = song.chart || { t: [], large: [] };
   const L = new Set(ch.large);
-  notes = ch.t.map((t, i) => ({ t, hold: L.has(i + 1) }));
+  notes = ch.t.map((t, i) => ({ t, hold: L.has(i + 1), key: (ch.keys && ch.keys[i]) || "" }));
+  showTrim();
   $("title").value = song.title; $("artist").value = song.artist || "";
   $("pstart").value = song.preview_start || 0; $("plen").value = String(Math.round(song.preview_len || 20));
   $("facts").textContent = `${mmss(song.len)} · ${song.bpm || "?"} BPM`;
@@ -337,9 +369,14 @@ function draw() {
     g.beginPath(); g.arc(x, ny, i === sel ? 10 : 8, 0, Math.PI * 2);
     g.fillStyle = C.bg; g.fill();
     g.beginPath(); g.arc(x, ny, i === sel ? 8 : 6, 0, Math.PI * 2);
-    g.fillStyle = n.hold ? C.pink : C.mark; g.fill();
+    g.fillStyle = n.hold ? C.pink : (n.key ? COL[n.key] : C.mark); g.fill();
     if (i === sel) { g.strokeStyle = C.text; g.lineWidth = 2; g.beginPath(); g.arc(x, ny, 12, 0, Math.PI * 2); g.stroke(); }
+    if (!n.hold && zoom >= 60) {   // the key above the note
+      g.fillStyle = n.key ? COL[n.key] : C.muted; g.font = "bold 13px system-ui"; g.textAlign = "center";
+      g.fillText({ up: "↑", down: "↓", left: "←", right: "→", act: "E" }[n.key] || "?", x, ny - 16);
+    }
   });
+  showKeys();
   // playhead
   const px = X(now());
   g.fillStyle = C.text; g.fillRect(Math.round(px), 0, 2, H);
@@ -368,7 +405,7 @@ cv.addEventListener("pointerdown", e => {
   if (i >= 0) { sel = i; snapshot(); drag = { i, moved: false }; cv.setPointerCapture(e.pointerId); draw(); return; }
   snapshot();
   const t = snapT(T(x));
-  notes.push({ t, hold: false }); notes.sort((a, b) => a.t - b.t);
+  notes.push({ t, hold: false, key: "" }); notes.sort((a, b) => a.t - b.t);
   sel = notes.findIndex(n => n.t === t);
   mark();
 });
@@ -391,6 +428,16 @@ cv.addEventListener("wheel", e => {
 $("scroll").oninput = () => { const w = cv.clientWidth / zoom; setView((song.len - w) * $("scroll").value / 1000); draw(); };
 $("zin").onclick = () => { const c = view + cv.clientWidth / zoom / 2; zoom = Math.min(800, zoom * 1.4); setView(c - cv.clientWidth / zoom / 2); draw(); };
 $("zout").onclick = () => { const c = view + cv.clientWidth / zoom / 2; zoom = Math.max(20, zoom / 1.4); setView(c - cv.clientWidth / zoom / 2); draw(); };
+function setKey(k) {
+  if (sel < 0 || locked()) return;
+  if (notes[sel].hold) { setStatus("у удержания любая клавиша"); return; }
+  snapshot(); notes[sel].key = k; mark(); showKeys();
+}
+function showKeys() {
+  const k = sel >= 0 && notes[sel] && !notes[sel].hold ? notes[sel].key || "" : null;
+  document.querySelectorAll("#keys .btn").forEach(b => b.classList.toggle("on", k !== null && b.dataset.k === k));
+}
+document.querySelectorAll("#keys .btn").forEach(b => b.onclick = () => setKey(b.dataset.k));
 function toggleHold() { if (sel < 0 || locked()) return; snapshot(); notes[sel].hold = !notes[sel].hold; mark(); }
 function delNote() { if (sel < 0 || locked()) return; snapshot(); notes.splice(sel, 1); sel = Math.min(sel, notes.length - 1); mark(); }
 function doUndo() { if (!undo.length || locked()) return; notes = JSON.parse(undo.pop()); sel = -1; mark(); }
@@ -401,6 +448,7 @@ document.addEventListener("keydown", e => {
   if (e.key === " ") { e.preventDefault(); playing ? stop() : play(now()); }
   else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); delNote(); }
   else if (e.key === "h" || e.key === "H" || e.key === "р" || e.key === "Р") toggleHold();
+  else if (["1", "2", "3", "4", "5", "0"].includes(e.key)) setKey({ 1: "up", 2: "down", 3: "left", 4: "right", 5: "act", 0: "" }[e.key]);
   else if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "я")) { e.preventDefault(); doUndo(); }
   else if (e.key === "ArrowLeft" && sel >= 0) { sel = Math.max(0, sel - 1); window._pos = notes[sel].t; draw(); }
   else if (e.key === "ArrowRight" && sel >= 0) { sel = Math.min(notes.length - 1, sel + 1); window._pos = notes[sel].t; draw(); }
@@ -434,11 +482,39 @@ function checkWarnings() {
   return p;
 }
 
+// ------------------------------------------------------------------ trim: a piece of the uploaded song
+function showTrim() {
+  const ts = song.trim_start || 0, te = song.trim_end || song.src_len || song.len;
+  $("tstart").value = ts.toFixed(1); $("tend").value = te.toFixed(1);
+  $("trimInfo").textContent = song.trim_end ? `обрезано: ${mmss(ts, true)} — ${mmss(te, true)} из ${mmss(song.src_len)}` : `вся песня (${mmss(song.src_len || song.len)})`;
+}
+// the position on the lane is in the trimmed song: the source time is that + the current trim start
+$("tsHere").onclick = () => { $("tstart").value = ((song.trim_start || 0) + now()).toFixed(1); };
+$("teHere").onclick = () => { $("tend").value = ((song.trim_start || 0) + now()).toFixed(1); };
+async function doTrim(start, end) {
+  if (locked()) return;
+  if (dirty && !(await save())) return;
+  setStatus("обрезается…"); stop();
+  const r = await fetch("/api/v1/songs/" + UUID + "/trim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ start, end }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { setStatus("не обрезалось: " + (j.detail || r.status)); return; }
+  undo = []; sel = -1; window._pos = 0;
+  $("ed").hidden = true; $("out").hidden = false; $("out").textContent = "Загружается обрезанная песня…";
+  await load();
+  setStatus(`обрезано — осталось ${j.notes} нот`);
+}
+$("trim").onclick = () => {
+  const a = +$("tstart").value, b = +$("tend").value;
+  if (!(b - a >= 20)) { setStatus("нужно оставить хотя бы 20 с"); return; }
+  if (confirm(`Оставить ${mmss(a, true)} — ${mmss(b, true)}? Ноты вне этого куска уберутся.`)) doTrim(a, b);
+};
+$("untrim").onclick = () => { if (confirm("Вернуть всю песню? Ноты останутся на своих местах.")) doTrim(0, null); };
+
 // ------------------------------------------------------------------ save, automatic chart
 async function save() {
   if (problems().some(p => p.hard)) { setStatus("исправьте отмеченные ⛔ ноты"); return false; }
   setStatus("сохраняется…");
-  const body = { t: notes.map(n => n.t), large: notes.map((n, i) => n.hold ? i + 1 : 0).filter(Boolean),
+  const body = { t: notes.map(n => n.t), large: notes.map((n, i) => n.hold ? i + 1 : 0).filter(Boolean), keys: notes.map(n => n.hold ? "" : (n.key || "")),
     preview_start: +$("pstart").value, preview_len: +$("plen").value, title: $("title").value, artist: $("artist").value };
   const r = await fetch("/api/v1/songs/" + UUID + "/chart", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (r.ok) { dirty = false; setStatus("сохранено"); return true; }
@@ -457,7 +533,7 @@ $("auto").onclick = async () => {
     const s = await (await fetch("/api/v1/songs/" + UUID)).json();
     if (s.analysis === "done" || s.analysis === "failed") {
       if (s.analysis === "failed") { setStatus("не получилось: " + (s.analysis_error || "")); return; }
-      const L = new Set(s.chart.large); notes = s.chart.t.map((t, i) => ({ t, hold: L.has(i + 1) })); sel = -1; mark(); return;
+      const L = new Set(s.chart.large); notes = s.chart.t.map((t, i) => ({ t, hold: L.has(i + 1), key: (s.chart.keys && s.chart.keys[i]) || "" })); sel = -1; mark(); return;
     }
   }
 };
@@ -466,10 +542,10 @@ $("auto").onclick = async () => {
 const KEYS = ["up", "down", "left", "right", "act", "act"];
 const KEYMAP = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down", ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", Space: "act", KeyE: "act" };
 const COL = { up: "#288cff", down: "#1ebe5a", left: "#ff8c00", right: "#eb3282", act: "#9650f5", any: "#ffd65a" };
-function gameNotes(seed) {                    // like sh_mg_dance.lua D.NotesFrom: random keys (holds: any key), new each game
+function gameNotes(seed) {                    // like sh_mg_dance.lua D.NotesFrom: the author's key, else random (holds: any key)
   let r = seed;
   const rnd = n => { r = (r * 1103515245 + 12345) % 2147483648; return Math.floor(r / 65536) % n + 1; };
-  return notes.map(n => ({ t: n.t, key: n.hold ? "any" : KEYS[rnd(KEYS.length) - 1], large: n.hold }));
+  return notes.map(n => ({ t: n.t, key: n.hold ? "any" : (n.key || KEYS[rnd(KEYS.length) - 1]), large: n.hold }));
 }
 function points(combo, perfect) { if (combo >= 6) return [perfect ? 9 : 5, "СУПЕР!"]; if (combo >= 3) return [perfect ? 7 : 3, "КРУТО!"]; return [perfect ? 5 : 1, "ХОРОШО"]; }
 $("test").onclick = () => {
