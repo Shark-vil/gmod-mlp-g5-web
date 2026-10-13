@@ -43,9 +43,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 try:  # in the image: the package "app"; in local tests: the folder itself
-    from . import auth
+    from . import auth, songs
 except ImportError:
     import auth
+    import songs
 
 DB_PATH = os.environ.get("MLP_DB", "/data/stats.db")
 SERVER_KEYS = {}
@@ -148,6 +149,8 @@ def init():
 init()
 auth.init(db)
 app.include_router(auth.router)
+songs.init(db, os.path.dirname(DB_PATH) or ".")
+app.include_router(songs.router)
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 
