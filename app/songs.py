@@ -158,7 +158,8 @@ def make_preview(u, start, length):
              "-map_metadata", "-1", "-c:a", "libvorbis", "-q:a", "3", out])
 
 
-def _analyse(u):
+def _analyse(u, notes=True):
+    """the tempo, the beat grid, the preview; the automatic notes only when asked (notes=True: the editor's button)"""
     with _work:
         with _db() as con:
             con.execute("UPDATE songs SET analysis = 'running', updated = ? WHERE uuid = ?", (_now(), u))
@@ -167,9 +168,11 @@ def _analyse(u):
             start = round(max(0.0, min(res["len"] - PREVIEW_LEN, res["len"] * 0.3)), 2)
             length = round(min(PREVIEW_LEN, res["len"]), 2)
             with _db() as con:
-                r = con.execute("SELECT preview_start, preview_len FROM songs WHERE uuid = ?", (u,)).fetchone()
+                r = con.execute("SELECT preview_start, preview_len, chart FROM songs WHERE uuid = ?", (u,)).fetchone()
             make_preview(u, r["preview_start"] if r and r["preview_start"] is not None else start,
                          r["preview_len"] if r and r["preview_len"] else length)
+            if not notes:  # a new upload starts with no notes; the author places them (or asks for the automatic ones)
+                res["chart"] = json.loads(r["chart"]) if r and r["chart"] else {"t": [], "large": []}
             with _db() as con:
                 con.execute("UPDATE songs SET analysis = 'done', analysis_error = NULL, len = ?, bpm = ?, beat = ?, beats = ?, chart = ?, "
                             "preview_start = COALESCE( preview_start, ? ), preview_len = COALESCE( preview_len, ? ), updated = ? WHERE uuid = ?",
@@ -185,8 +188,8 @@ def _analyse(u):
                 shutil.rmtree(song_dir(u), ignore_errors=True)
 
 
-def start_analysis(u):
-    threading.Thread(target=_analyse, args=(u,), daemon=True).start()
+def start_analysis(u, notes=True):
+    threading.Thread(target=_analyse, args=(u, notes), daemon=True).start()
 
 
 # ---------------------------------------------------------------------------------------------- ban words
@@ -391,12 +394,15 @@ def upload(request: Request, file: UploadFile = File(...), title: str = Form(...
     with _db() as con:
         con.execute("INSERT INTO songs ( uuid, owner, title, artist, status, created, updated, len, src_len, trim_start, analysis, version, live_version ) "
                     "VALUES ( ?, ?, ?, ?, 'draft', ?, ?, ?, ?, 0, 'queued', 0, 0 )", (u, user["steamid"], title, artist, now, now, round(length, 2), round(length, 2)))
-    start_analysis(u)
+    start_analysis(u, notes=False)
     return {"uuid": u}
 
 
-def check_chart(times, large, length, keys=None):
-    """sorted notes + their holds + their keys ("" = random), or HTTPException with what's wrong"""
+def check_chart(times, large, length, keys=None, allow_empty=False):
+    """sorted notes + their holds + their keys ("" = random), or HTTPException with what's wrong
+    (a draft may be saved with no notes; a mod needs at least one)"""
+    if allow_empty and not times:
+        return [], set(), []
     if not times or len(times) > 3000:
         raise HTTPException(400, "1-3000 notes")
     keys = list(keys or [])
@@ -437,7 +443,7 @@ async def save_chart(u: str, request: Request):
     except Exception:
         raise HTTPException(400, "bad chart")
     length = r["len"] or 0
-    times, large, keys = check_chart(times, large, length, keys)
+    times, large, keys = check_chart(times, large, length, keys, allow_empty=True)
     ps = round(float(body.get("preview_start", r["preview_start"] or 0)), 2)
     pl = round(float(body.get("preview_len", r["preview_len"] or PREVIEW_LEN)), 2)
     if not 10 <= pl <= 30 or ps < 0 or ps + pl > length + 0.01:
@@ -664,6 +670,8 @@ def build(u: str, request: Request):
     if r["analysis"] != "done" or not r["chart"] or not os.path.exists(os.path.join(song_dir(u), "full.ogg")):
         raise HTTPException(409, "the song isn't ready")
     chart = json.loads(r["chart"])
+    if not chart.get("t"):
+        raise HTTPException(400, "no notes yet: place them (or ask for the automatic ones) and save")
     check_chart(chart["t"], set(chart["large"]), r["len"] or 0, chart.get("keys"))
     files = mod_files(r)
     hashes = {path: hashlib.sha256(data).hexdigest() for path, data in files.items()}

@@ -48,7 +48,7 @@
           <input name="title" maxlength="80" placeholder="Название песни" required aria-label="Название">
           <input name="artist" maxlength="80" placeholder="Исполнитель (необязательно)" aria-label="Исполнитель">
           <input class="file" type="file" name="file" accept=".mp3,.ogg,.wav,.flac,.m4a,.opus,audio/*" required aria-label="Файл песни">
-          <div class="row"><button class="btn main" id="upBtn">Загрузить и открыть редактор</button><span class="hint" id="upMsg">до 40 МБ, 20 с — 5 мин; ноты расставятся сами, потом их можно поправить</span></div>
+          <div class="row"><button class="btn main" id="upBtn">Загрузить и открыть редактор</button><span class="hint" id="upMsg">до 40 МБ, 20 с — 5 мин; ноты ставите сами в редакторе (или кнопкой «Расставить автоматически»)</span></div>
           <progress id="upBar" value="0" max="1" hidden></progress>
         </form>
       </div>
@@ -59,7 +59,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const STATUS = { draft: ["черновик", ""], built: ["мод собран", ""], pending: ["на проверке", ""], approved: ["одобрена", "ok"], rejected: ["отклонена", "no"] };
-const ANALYSIS = { queued: "ноты расставляются…", running: "ноты расставляются…", failed: "не удалось расставить ноты" };
+const ANALYSIS = { queued: "обрабатывается…", running: "обрабатывается…", failed: "не удалось обработать" };
 
 function mmss(v) { v = Math.round(v || 0); return Math.floor(v / 60) + ":" + String(v % 60).padStart(2, "0"); }
 

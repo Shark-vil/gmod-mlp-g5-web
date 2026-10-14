@@ -43,5 +43,6 @@ nav.links { display: flex; gap: 14px; font-size: 13px; margin: -4px 0 10px; }
 nav.links a { color: var(--muted); text-decoration: none; }
 nav.links a.on, nav.links a:hover { color: var(--text); }
 .btn { display: inline-block; text-decoration: none; border: 0; border-radius: 999px; padding: 7px 14px; font: inherit; cursor: pointer; background: var(--row); color: var(--text); }
-.btn.main { background: var(--pink); color: #fff; }
+.btn.main { background: #c2307f; color: #fff; font-weight: 600; } /* white text needs a deep pink: 5.2:1 */
+.btn.main:hover:not(:disabled) { background: #a82670; }
 .btn:disabled { opacity: .5; cursor: default; }

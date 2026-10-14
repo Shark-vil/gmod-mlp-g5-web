@@ -31,7 +31,8 @@
   .keys .btn { min-width: 36px; padding: 6px 8px; font-weight: 700; }
   .keys .btn.on { outline: 2px solid var(--text); outline-offset: -2px; }
   .keys .k-up { color: #1f6fd1; } .keys .k-down { color: #128a42; } .keys .k-left { color: #c56a00; } .keys .k-right { color: #c4246b; } .keys .k-act { color: #7a3ad6; }
-  .btn.rec { background: #e8323c; color: #fff; }
+  @media (prefers-color-scheme: dark) { .keys .k-up { color: #7db8ff; } .keys .k-down { color: #6fe39a; } .keys .k-left { color: #ffb35c; } .keys .k-right { color: #ff8cc0; } .keys .k-act { color: #c9a4ff; } }
+  .btn.rec { background: #c62832; color: #fff; font-weight: 600; }
   .btn.rec.on { animation: blink 1s steps(2) infinite; }
   @keyframes blink { 50% { opacity: .55; } }
   .recbar { display: none; align-items: center; gap: 10px; padding: 8px 12px; margin-top: 8px; background: #2a0d1a; color: #ffd6dc; border-radius: 12px; font-size: 14px; }
@@ -101,6 +102,7 @@
         <button class="btn k-act" data-k="act" title="5">E</button><button class="btn" data-k="" title="0 — своя случайная клавиша в каждой игре">🎲</button>
       </span>
       <button class="btn" id="auto">Расставить автоматически</button>
+      <button class="btn del" id="clear" title="Убрать все ноты">Очистить все ноты</button>
       <span class="sep"></span>
       <button class="btn main" id="test">Проверить</button>
       <button class="btn main" id="save">Сохранить</button>
@@ -196,7 +198,7 @@ async function load() {
   const r = await fetch("/api/v1/songs/" + UUID);
   if (r.status === 404) { $("out").textContent = "Песня не найдена (или это не ваша песня)."; return; }
   song = await r.json();
-  if (song.analysis === "queued" || song.analysis === "running") { $("out").textContent = "Ноты расставляются автоматически… (страница обновится сама)"; setTimeout(load, 2500); return; }
+  if (song.analysis === "queued" || song.analysis === "running") { $("out").textContent = "Песня обрабатывается: темп, сетка долей, фрагмент… (страница обновится сама)"; setTimeout(load, 2500); return; }
 
   if (!song.has_full) { $("out").textContent = "Полного трека нет на сайте — редактировать нельзя."; return; }
   $("out").textContent = "Загружается звук…";
@@ -660,8 +662,13 @@ async function save() {
   return false;
 }
 $("save").onclick = save;
+$("clear").onclick = () => {
+  if (locked() || !notes.length) return;
+  if (!confirm(`Вы уверены? Все ноты (${notes.length}) будут удалены. Вернуть можно кнопкой «Отменить», пока страница открыта.`)) return;
+  snapshot(); notes = []; sel = -1; mark(); setStatus("все ноты удалены — не забудьте сохранить");
+};
 $("auto").onclick = async () => {
-  if (!confirm("Расставить ноты автоматически заново? Текущие ноты заменятся (их можно вернуть «Отменить»).")) return;
+  if (!confirm(notes.length ? "Расставить ноты автоматически? Текущие ноты заменятся (их можно вернуть «Отменить»)." : "Расставить ноты автоматически?")) return;
   snapshot();
   setStatus("расставляется…");
   await fetch("/api/v1/songs/" + UUID + "/auto", { method: "POST" });
