@@ -679,6 +679,16 @@ def song_page(u: str):
     return _page("songs.html")
 
 
+@app.get("/rules", include_in_schema=False)
+def rules_page():
+    return _page("rules.html")
+
+
+@app.get("/away", include_in_schema=False)
+def away_page():
+    return _page("away.html")  # ?r=<url>: the warning before an outside site (the page checks the link)
+
+
 @app.get("/admin", include_in_schema=False)
 def admin_page():
     return _page("admin.html")  # the admin API checks the login

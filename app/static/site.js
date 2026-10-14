@@ -136,7 +136,7 @@
   .ck-foot button { border: 0; background: none; color: var(--muted); text-decoration: underline; font: inherit; cursor: pointer; padding: 0; }`;
   const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
-  const KEYS = ["mlpTheme", "mlpLang", "mlpEdKeyMode", "lf-mode:ban_words"];   // what "remember settings" keeps
+  const KEYS = ["mlpTheme", "mlpLang", "mlpEdKeyMode", "lf-mode:ban_words", "lf-mode:genres", "mlpEd_vol", "mlpEd_mvol", "mlpEdLaneH", "mlpSongsAge"];   // what "remember settings" keeps
   const LOSS_LOGIN = "Не получится войти через Steam: не будет «Мои песни», загрузки и редактора песен, «Моей статистики». Если вы уже вошли — выйдете.";
   const LOSS_PREFS = "Язык, тема, настройки редактора и вид списков не запомнятся: при каждом открытии — снова как в системе и по умолчанию.";
   const LOSS_LOGIN_ROW = "Без него: не получится войти через Steam — не будет «Мои песни», загрузки и редактора песен, «Моей статистики». Если вы уже вошли — выйдете.";
@@ -232,4 +232,36 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup); else setup();
   // logged in from before the window existed, and the login cookie was refused since: drop it
   document.addEventListener("mlp-me", e => { const c = window.mlpConsent(); if (e.detail && c.decided && !c.login) save(false, c.prefs); });
+})();
+
+// ------------------------------------------------------------------------------------------------ the song's author
+// The nick (a link to the Steam profile), a "barcode" instead of a nick that hits the content filter, and the
+// "trusted author" mark. mlpAuthor(song) -> <a>; the song has owner, owner_nick, owner_nick_hidden, owner_profile, owner_trusted.
+(function () {
+  const st = document.createElement("style");
+  st.textContent = `.bc { display: inline-block; height: 12px; vertical-align: -1px; opacity: .85; }
+  .trusted { display: inline-block; margin-left: 4px; color: #1f8a4c; font-weight: 700; text-decoration: none; }
+  :root[data-theme="dark"] .trusted { color: #7fe0a6; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .trusted { color: #7fe0a6; } }`;
+  document.head.appendChild(st);
+  window.mlpBarcode = function (sid) {
+    const s = document.createElement("span"); s.className = "bc";
+    s.title = "Ник скрыт фильтром"; s.setAttribute("role", "img"); s.setAttribute("aria-label", s.title);
+    let x = 0; const stops = [];
+    String(sid || "0").slice(-12).split("").forEach(ch => {
+      const d = +ch || 0, w = 1 + d % 3, gap = 1 + (d >> 2) % 2;
+      stops.push(`currentColor ${x}px ${x + w}px`, `transparent ${x + w}px ${x + w + gap}px`); x += w + gap;
+    });
+    s.style.width = x + "px"; s.style.background = `linear-gradient(90deg, ${stops.join(", ")})`;
+    return s;
+  };
+  window.mlpAuthor = function (s) {
+    const a = document.createElement("a"); a.href = s.owner_profile; a.target = "_blank"; a.rel = "noopener";
+    if (s.owner_nick_hidden) a.appendChild(window.mlpBarcode(s.owner)); else a.textContent = s.owner_nick || s.owner;
+    const w = document.createElement("span"); w.append(a);
+    if (s.owner_trusted) { const t = document.createElement("span"); t.className = "trusted"; t.textContent = "✔"; t.title = "Проверенный автор"; t.setAttribute("aria-label", t.title); w.append(t); }
+    return w;
+  };
+  // a link the author wrote (the source): through the warning page
+  window.mlpAway = function (url) { return "/away?r=" + encodeURIComponent(url); };
 })();

@@ -46,19 +46,23 @@
   .lf-addrow { display: flex; gap: 8px; }
   .lf-foot { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   .lf-foot span { color: var(--muted); font-size: 13px; }
+  .chip.tip { cursor: help; text-decoration: underline dotted; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .badges span { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--row); }
 </style>
 </head>
 <body>
 <div class="bar"></div>
 <main>
   <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay · админка</b><span id="account"></span></div>
-  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a><a href="/admin" class="on">Админка</a><a href="/api/docs">API</a></nav>
+  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a><a href="/rules">Правила</a><a href="/admin" class="on">Админка</a><a href="/api/docs">API</a></nav>
   <div id="out" class="card msg">Загрузка…</div>
   <div id="page" hidden>
     <div class="tabs">
       <button class="btn on" data-tab="pending">На проверке</button>
       <button class="btn" data-tab="all">Все песни</button>
       <button class="btn" data-tab="words">Запрещённые слова</button>
+      <button class="btn" data-tab="genres">Жанры</button>
     </div>
     <div id="tab-songs">
       <div class="filters" id="filters" hidden>
@@ -82,7 +86,24 @@
           <div class="lf-chips"></div>
           <div class="lf-addrow"><input type="text" class="lf-input" placeholder="слово, затем Enter или «Добавить»"><button type="button" class="btn lf-addbtn">Добавить</button></div>
         </div>
-        <div class="lf-foot"><button class="btn main" id="saveWords">Сохранить</button><span id="wordsMsg">Песни, в названии или исполнителе которых есть такое слово, скрываются из списка и из игры (не удаляются).</span></div>
+        <div class="lf-foot"><button class="btn main" id="saveWords">Сохранить</button><span id="wordsMsg">Песню с таким словом в названии, исполнителе, тегах, источнике или в названии / описании мода нельзя отправить на проверку; опубликованная скрывается из списка и из игры (не удаляется). Ник автора с таким словом показывается штрихкодом.</span></div>
+      </div>
+    </div>
+    <div id="tab-genres" hidden>
+      <div class="card lf" id="lfg">
+        <div class="lf-modes">
+          <button type="button" class="lf-mode" data-mode="lines">по строкам</button>
+          <button type="button" class="lf-mode" data-mode="comma">через запятую</button>
+          <button type="button" class="lf-mode" data-mode="add">по одному</button>
+          <button type="button" class="btn lf-import" style="margin-left:8px" title="Добавить строки из .txt (дубликаты уберутся)">Загрузить .txt</button>
+          <input type="file" class="lf-file" accept=".txt,text/plain" hidden>
+        </div>
+        <textarea class="lf-text" placeholder="Русское название | English name — по одному жанру на строку" aria-label="Жанры"></textarea>
+        <div class="lf-add" hidden>
+          <div class="lf-chips"></div>
+          <div class="lf-addrow"><input type="text" class="lf-input" placeholder="Русское | English, затем Enter или «Добавить»"><button type="button" class="btn lf-addbtn">Добавить</button></div>
+        </div>
+        <div class="lf-foot"><button class="btn main" id="saveGenres">Сохранить</button><span id="genresMsg">Строка «Русское название | English name». Переименованный жанр остаётся у песен (если не поменять оба названия сразу), удалённый у песен пропадает. У песни — до трёх жанров, автор меняет их без проверки.</span></div>
       </div>
     </div>
   </div>
@@ -108,18 +129,33 @@ function row(s) {
   const st = STATUS[s.status] || [s.status, ""];
   const t = el("div", s.title, "t"); t.appendChild(el("span", st[0], "chip " + st[1]));
   if (s.published) t.appendChild(el("span", "в игре v" + s.published.version, "chip ok"));
-  if (s.hidden) t.appendChild(el("span", "скрыта словом", "chip no"));
+  // the content filter: every hit, where it is (hover)
+  const WHERE = { title: "в названии", artist: "в исполнителе", tags: "в тегах", source: "в источнике", ws_title: "в названии мода", ws_desc: "в описании мода", nick: "в нике автора" };
+  const songHits = (s.filter_hits || []).filter(h => h.where !== "nick"), nickHit = (s.filter_hits || []).some(h => h.where === "nick");
+  if (songHits.length) {
+    const c = el("span", s.hidden ? "скрыто фильтром" : tx("фильтр: {n}", songHits.length), "chip no tip");
+    c.title = songHits.map(h => tx("«{0}» — {1}", h.word, tx(WHERE[h.where] || h.where)) + (h.live ? " " + tx("(опубликованная версия)") : "")).join("\n");
+    t.appendChild(c);
+  }
+  if (nickHit) { const c = el("span", "ник → штрихкод", "chip wait tip"); c.title = (s.filter_hits || []).filter(h => h.where === "nick").map(h => tx("«{0}» — {1}", h.word, tx(WHERE.nick))).join("\n"); t.appendChild(c); }
   if (s.owner_banned) t.appendChild(el("span", "автор забанен", "chip no"));
+  if (s.owner_trusted) t.appendChild(el("span", "проверенный автор", "chip ok"));
+  if (s.approved_by === "auto" && s.status === "approved") t.appendChild(el("span", "одобрено автоматически", "chip"));
   // a new version that changes only the title / artist / cover / preview: the published mod stays (no new build)
-  const NAMES = { title: "название", artist: "исполнитель", cover: "обложка", preview: "фрагмент для прослушивания" };
+  const NAMES = { title: "название", artist: "исполнитель", cover: "обложка", preview: "фрагмент для прослушивания", tags: "теги", source: "источник", age: "возрастные метки" };
   if (s.status === "pending" && s.meta_only) t.appendChild(el("span", tx("только оформление: {0}", (s.meta_changes || []).map(k => tx(NAMES[k])).join(", ") || "—"), "chip wait"));
   const sub = el("div", null, "sub");
   // separate text nodes: the words get translated (i18n.js), the song's own text stays as it is
   [s.artist, mmss(s.len), s.bpm ? s.bpm + " BPM" : "", s.chart ? s.chart.t.length + " нот" : ""].filter(Boolean).forEach(x => sub.append(x, " · "));
   sub.append("автор", " ");
-  sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile)); sub.append(" (" + s.owner + ") · ", "изменена", " " + when(s.updated));
+  sub.appendChild(a(s.owner_real_nick || s.owner, s.owner_profile)); sub.append(" (" + s.owner + ") · ", "доверие", " " + (s.owner_trust || 0) + " · ", "изменена", " " + when(s.updated));
   if (s.workshop) { sub.append(" · "); sub.appendChild(a("мод " + s.wsid, s.workshop)); }
   if (s.reason) sub.append(" · ", "причина:", " " + s.reason);
+  if (s.source) { sub.append(" · ", "источник:", " "); sub.appendChild(a(s.source, mlpAway(s.source))); }
+  const bd = el("div", null, "badges");
+  if (s.age) bd.appendChild(el("span", s.age + "+"));
+  (s.genres || []).map(id => GENRES.find(g => g.id === id)).filter(Boolean).forEach(g => bd.appendChild(el("span", mlpLang() === "en" ? g.en || g.ru : g.ru)));
+  (s.tags || []).forEach(x => bd.appendChild(el("span", "#" + x)));
   if (s.published && (s.meta_changes || []).some(k => k === "title" || k === "artist")) sub.append(" · ", "было:", " " + s.published.title + (s.published.artist ? " — " + s.published.artist : ""));
   const au = el("audio"); au.controls = true; au.preload = "none"; au.src = "/api/v1/songs/" + s.uuid + "/full.ogg";
   const act = el("div", null, "act");
@@ -130,6 +166,9 @@ function row(s) {
   }
   const ed = el("a", "Ноты в редакторе", "btn"); ed.href = "/editor/" + s.uuid; ed.target = "_blank"; act.appendChild(ed);
   if (s.status === "pending" || s.status === "built" || s.status === "approved") { const z = el("a", "Мод (.zip)", "btn"); z.href = `/api/v1/songs/${s.uuid}/mod.zip`; act.appendChild(z); }
+  btn(s.owner_trusted ? "Снять «проверенный»" : "Сделать проверенным", "", async () => {
+    if (await api("POST", `/api/v1/admin/users/${s.owner}/trust`, { trusted: !s.owner_trusted })) load();
+  });
   btn(s.owner_banned ? "Разбанить автора" : "Забанить автора", "", async () => {
     const ban = !s.owner_banned;
     const reason = ban ? prompt(tx("Причина бана автора {0}:", s.owner_nick || s.owner), "") : "";
@@ -138,13 +177,16 @@ function row(s) {
   });
   btn("Удалить", "danger", async () => { if (!confirm(tx("Удалить песню «{0}» насовсем (вместе со звуком)?", s.title))) return; if (await api("DELETE", "/api/v1/songs/" + s.uuid)) load(); });
   const img = el("img", null, "cv"); img.src = s.cover; img.alt = ""; img.loading = "lazy";
-  d.append(img, t, sub, au, act);
+  d.append(img, t, sub);
+  if (bd.childNodes.length) d.appendChild(bd);
+  d.append(au, act);
   return d;
 }
 
-let qTimer = null;
+let qTimer = null, GENRES = [];
 async function load() {
-  if (tab === "words") return;
+  if (tab === "words" || tab === "genres") return;
+  try { GENRES = (await (await fetch("/api/v1/genres")).json()).genres || []; } catch (e) {}
   const box = $("rows");
   const status = tab === "pending" ? "pending" : $("status").value;
   const res = await (await fetch(`/api/v1/admin/songs?status=${status}&q=${encodeURIComponent(tab === "all" ? $("q").value : "")}`)).json();
@@ -156,63 +198,82 @@ async function load() {
 document.querySelectorAll(".tabs .btn").forEach(b => b.onclick = () => {
   tab = b.dataset.tab;
   document.querySelectorAll(".tabs .btn").forEach(x => x.classList.toggle("on", x === b));
-  $("tab-songs").hidden = tab === "words"; $("tab-words").hidden = tab !== "words"; $("filters").hidden = tab !== "all";
-  if (tab === "words") loadWords(); else load();
+  $("tab-songs").hidden = tab === "words" || tab === "genres"; $("tab-words").hidden = tab !== "words"; $("tab-genres").hidden = tab !== "genres";
+  $("filters").hidden = tab !== "all";
+  if (tab === "words") loadWords(); else if (tab === "genres") loadGenres(); else load();
 });
 $("q").addEventListener("input", () => { clearTimeout(qTimer); qTimer = setTimeout(load, 250); });
 $("status").onchange = load;
 
-// ---- the list field: the same three modes as tg-pony-moderator (lines / commas / one by one + chips), .txt import
-const lf = $("lf"), ta = lf.querySelector(".lf-text"), addWrap = lf.querySelector(".lf-add"), chips = lf.querySelector(".lf-chips"), input = lf.querySelector(".lf-input");
-const LS = "lf-mode:ban_words";
-const parseItems = s => (s || "").split(/[\n,]/).map(x => x.trim()).filter(Boolean);
-const items = () => parseItems(ta.value);
-const write = (arr, sep) => { ta.value = arr.join(sep); };
-function renderChips() {
-  chips.textContent = "";
-  items().forEach((v, i) => {
-    const c = el("span", null, "lf-chip"); c.appendChild(document.createTextNode(v));
-    const x = el("button", "×", "lf-x"); x.type = "button"; x.setAttribute("aria-label", "убрать");
-    x.onclick = () => { const arr = items(); arr.splice(i, 1); write(arr, "\n"); renderChips(); };
-    c.appendChild(x); chips.appendChild(c);
-  });
-}
-function setMode(m, save) {
-  lf.querySelectorAll(".lf-mode").forEach(b => b.classList.toggle("active", b.dataset.mode === m));
-  if (m === "add") { write(items(), "\n"); ta.hidden = true; addWrap.hidden = false; renderChips(); }
-  else { addWrap.hidden = true; ta.hidden = false; write(items(), m === "comma" ? ", " : "\n"); }
-  if (save) window.mlpStore.set(LS, m);
-}
-function addFromInput() { const arr = items(); parseItems(input.value).forEach(t => { if (!arr.includes(t)) arr.push(t); }); write(arr, "\n"); input.value = ""; renderChips(); }
-lf.querySelectorAll(".lf-mode").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
-lf.querySelector(".lf-addbtn").onclick = addFromInput;
-input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addFromInput(); } });
-const importBtn = lf.querySelector(".lf-import"), fileInput = lf.querySelector(".lf-file");
-importBtn.onclick = () => fileInput.click();
-fileInput.onchange = () => {
-  const file = fileInput.files && fileInput.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const lines = String(reader.result || "").split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l && l.charAt(0) !== "#");
-    const cur = items(), seen = new Set(cur.map(v => v.toLowerCase()));
-    let added = 0;
-    lines.forEach(v => { if (!seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); cur.push(v); added++; } });
-    write(cur, "\n"); if (!addWrap.hidden) renderChips();
-    const label = importBtn.textContent;
-    importBtn.textContent = added ? "Добавлено: " + added : (lines.length ? "Уже есть в списке" : "Файл пуст");
-    setTimeout(() => { importBtn.textContent = label; }, 2500);
+// ---- the list field (as in tg-pony-moderator): lines / commas / one by one + chips, .txt import; two of them
+function listField(lf, LS, sepOk) {
+  const ta = lf.querySelector(".lf-text"), addWrap = lf.querySelector(".lf-add"), chips = lf.querySelector(".lf-chips"), input = lf.querySelector(".lf-input");
+  const parseItems = v => (v || "").split(sepOk ? /[\n,]/ : /\n/).map(x => x.trim()).filter(Boolean);
+  const items = () => parseItems(ta.value);
+  const write = (arr, sep) => { ta.value = arr.join(sep); };
+  const mode = () => (lf.querySelector(".lf-mode.active") || {}).dataset ? lf.querySelector(".lf-mode.active").dataset.mode : "lines";
+  function renderChips() {
+    chips.textContent = "";
+    items().forEach((v, i) => {
+      const c = el("span", null, "lf-chip"); c.appendChild(document.createTextNode(v));
+      const x = el("button", "×", "lf-x"); x.type = "button"; x.setAttribute("aria-label", "убрать");
+      x.onclick = () => { const arr = items(); arr.splice(i, 1); write(arr, "\n"); renderChips(); };
+      c.appendChild(x); chips.appendChild(c);
+    });
+  }
+  function setMode(m, save) {
+    if (!sepOk && m === "comma") m = "lines";
+    lf.querySelectorAll(".lf-mode").forEach(b => b.classList.toggle("active", b.dataset.mode === m));
+    if (m === "add") { write(items(), "\n"); ta.hidden = true; addWrap.hidden = false; renderChips(); }
+    else { addWrap.hidden = true; ta.hidden = false; write(items(), m === "comma" ? ", " : "\n"); }
+    if (save) window.mlpStore.set(LS, m);
+  }
+  function addFromInput() { const arr = items(); parseItems(input.value).forEach(t => { if (!arr.includes(t)) arr.push(t); }); write(arr, "\n"); input.value = ""; renderChips(); }
+  if (!sepOk) lf.querySelector('.lf-mode[data-mode="comma"]').hidden = true;   // genres: "Русское | English" per line
+  lf.querySelectorAll(".lf-mode").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
+  lf.querySelector(".lf-addbtn").onclick = addFromInput;
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addFromInput(); } });
+  const importBtn = lf.querySelector(".lf-import"), fileInput = lf.querySelector(".lf-file");
+  importBtn.onclick = () => fileInput.click();
+  fileInput.onchange = () => {
+    const file = fileInput.files && fileInput.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const lines = String(reader.result || "").split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l && l.charAt(0) !== "#");
+      const cur = items(), seen = new Set(cur.map(v => v.toLowerCase()));
+      let added = 0;
+      lines.forEach(v => { if (!seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); cur.push(v); added++; } });
+      write(cur, "\n"); if (!addWrap.hidden) renderChips();
+      const label = importBtn.textContent;
+      importBtn.textContent = added ? "Добавлено: " + added : (lines.length ? "Уже есть в списке" : "Файл пуст");
+      setTimeout(() => { importBtn.textContent = label; }, 2500);
+    };
+    reader.readAsText(file, "utf-8"); fileInput.value = "";
   };
-  reader.readAsText(file, "utf-8"); fileInput.value = "";
-};
+  return {
+    items,
+    load(arr) { write(arr, "\n"); setMode(window.mlpStore.get(LS) || "lines", false); },
+    show(arr) { write(arr, ta.hidden || mode() !== "comma" ? "\n" : ", "); if (!addWrap.hidden) renderChips(); },
+  };
+}
+const words = listField($("lf"), "lf-mode:ban_words", true);
+const genres = listField($("lfg"), "lf-mode:genres", false);
 async function loadWords() {
   const res = await (await fetch("/api/v1/admin/banwords")).json();
-  write(res.words || [], "\n");
-  let m = window.mlpStore.get(LS) || "lines";
-  setMode(m, false);
+  words.load(res.words || []);
 }
 $("saveWords").onclick = async () => {
-  const res = await api("PUT", "/api/v1/admin/banwords", { words: items() });
-  if (res) { $("wordsMsg").textContent = "Сохранено: " + res.words.length + " слов(а)."; write(res.words, ta.hidden ? "\n" : (lf.querySelector(".lf-mode.active").dataset.mode === "comma" ? ", " : "\n")); if (!addWrap.hidden) renderChips(); }
+  const res = await api("PUT", "/api/v1/admin/banwords", { words: words.items() });
+  if (res) { $("wordsMsg").textContent = "Сохранено: " + res.words.length + " слов(а)."; words.show(res.words); }
+};
+const gline = g => g.ru + (g.en && g.en !== g.ru ? " | " + g.en : "");
+async function loadGenres() {
+  const res = await (await fetch("/api/v1/admin/genres")).json();
+  genres.load((res.genres || []).map(gline));
+}
+$("saveGenres").onclick = async () => {
+  const res = await api("PUT", "/api/v1/admin/genres", { genres: genres.items() });
+  if (res) { $("genresMsg").textContent = tx("Сохранено жанров: {n}.", res.genres.length); genres.show(res.genres.map(gline)); }
 };
 
 document.addEventListener("mlp-me", e => {

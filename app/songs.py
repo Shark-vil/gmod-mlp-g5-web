@@ -11,7 +11,13 @@ Every song has two copies:
                      link is in, waiting for the audit) -> approved / rejected
   the published copy (live_*) — what an admin approved last: shown on /songs, used by the game servers. Editing
                      an approved song ("revise") doesn't touch it until the new version is approved too.
-Titles / artists with a word of the admins' BAN_WORDS list are hidden from the public list (not deleted).
+The content filter (the admins' ban words) checks the title, the artist, the tags, the source link and the
+Workshop item's title / description: a song that hits it can't be sent for review, and a published one that hits a
+word added later is hidden (not deleted). An author's nick that hits it only shows as a "barcode".
+Tags (the author's, reviewed), genres (the admins' list, no review), the source link (reviewed), the age marks
+(swearing: some / over 20 %, a sexual subtext -> 16+ / 18+; raising one is at once, lowering it is reviewed).
+Trust: an author whose songs pass the review gets points; a trusted one's updates of published songs are
+approved by themselves (the filter still checks them).
 
   POST   /api/v1/songs                  multipart: file, title, artist   -> { uuid }
   GET    /api/v1/songs                  the published songs (?q= search, ?limit, ?offset)
@@ -31,9 +37,11 @@ Titles / artists with a word of the admins' BAN_WORDS list are hidden from the p
   POST   /api/v1/songs/{uuid}/submit    { workshop } -> checked with Steam -> pending; a draft of a published song that
                                         only changes the title / artist / cover / preview (meta_only) goes with no build
   POST   /api/v1/songs/{uuid}/revise    approved / rejected -> draft (a new version; the published one stays)
+  GET    /api/v1/genres                 the genres { id, ru, en }; GET /api/v1/tags?q= the published songs' tags (hints)
   DELETE /api/v1/songs/{uuid}           the author (never published) or an admin
   admin: GET /api/v1/admin/songs (?status, ?q), POST …/{uuid}/approve, POST …/{uuid}/reject { reason },
-         GET / PUT /api/v1/admin/banwords { words }, POST /api/v1/admin/users/{steamid}/ban { banned, reason }
+         GET / PUT /api/v1/admin/banwords { words }, POST /api/v1/admin/users/{steamid}/ban { banned, reason },
+         GET / PUT /api/v1/admin/genres { genres: [ { id?, ru, en } ] }, POST /api/v1/admin/users/{steamid}/trust { trusted }
 """
 import hashlib
 import io
@@ -91,7 +99,13 @@ ICON_MAX = 1024 * 1024  # the Workshop icon (addon.jpg): 512x512, at most 1 MB
 COVER_MAX_MB = 5
 DEFAULT_COVER = os.path.join(os.path.dirname(__file__), "static", "song_icon.jpg")
 LIVE_COLS = {"trim_start": "REAL DEFAULT 0", "trim_end": "REAL", "src_len": "REAL", "live_title": "TEXT", "live_artist": "TEXT", "live_chart": "TEXT", "live_hashes": "TEXT", "live_wsid": "TEXT",
-             "live_len": "REAL", "live_beat": "REAL", "live_version": "INTEGER DEFAULT 0", "live_at": "INTEGER", "version": "INTEGER DEFAULT 0"}
+             "live_len": "REAL", "live_beat": "REAL", "live_version": "INTEGER DEFAULT 0", "live_at": "INTEGER", "version": "INTEGER DEFAULT 0",
+             # tags / the source link / the age marks: the working copy and the published one; genres: one copy (no review)
+             "tags": "TEXT", "live_tags": "TEXT", "genres": "TEXT", "source": "TEXT", "live_source": "TEXT",
+             "swear": "INTEGER DEFAULT 0", "lewd": "INTEGER DEFAULT 0", "live_swear": "INTEGER DEFAULT 0", "live_lewd": "INTEGER DEFAULT 0",
+             "ws_title": "TEXT", "ws_desc": "TEXT",            # the Workshop item's title / description (at the submit)
+             "approved_by": "TEXT", "filter_at": "INTEGER DEFAULT 0"}  # "auto" / the admin; the last filter penalty
+USER_COLS = {"trust": "INTEGER DEFAULT 0", "trusted": "INTEGER DEFAULT 0"}
 
 
 def init(db_factory, data_dir):
@@ -114,6 +128,10 @@ def init(db_factory, data_dir):
         for col, kind in LIVE_COLS.items():  # the published copy (added after the first version)
             if col not in have:
                 con.execute(f"ALTER TABLE songs ADD COLUMN {col} {kind}")
+        have = {r["name"] for r in con.execute("PRAGMA table_info( users )")}
+        for col, kind in USER_COLS.items():  # the author's trust
+            if col not in have:
+                con.execute(f"ALTER TABLE users ADD COLUMN {col} {kind}")
 
 
 def song_dir(u):
@@ -215,19 +233,140 @@ def start_analysis(u, notes=True):
     threading.Thread(target=_analyse, args=(u, notes), daemon=True).start()
 
 
-# ---------------------------------------------------------------------------------------------- ban words
+# ---------------------------------------------------------------------------------------------- the content filter
+_WORDS = {"t": 0, "words": []}
+
+
 def ban_words():
+    if time.time() - _WORDS["t"] < 5:   # a list of songs asks for every row: read once in a while
+        return _WORDS["words"]
     with _db() as con:
         r = con.execute("SELECT value FROM meta WHERE key = 'ban_words'").fetchone()
     try:
-        return json.loads(r["value"]) if r else []
+        words = json.loads(r["value"]) if r else []
     except Exception:
-        return []
+        words = []
+    _WORDS.update(t=time.time(), words=words)
+    return words
 
 
-def hidden(title, artist, words=None):
-    text = f"{title or ''} {artist or ''}".lower()
-    return any(w and w.lower() in text for w in (ban_words() if words is None else words))
+def filter_hits(fields, words=None):
+    """[ ( where, text ) ] -> [ { word, where } ]: every ban word found (a part of a word counts too)"""
+    words = ban_words() if words is None else words
+    out = []
+    for where, text in fields:
+        low = (text or "").lower()
+        if not low:
+            continue
+        for w in words:
+            if w and w.lower() in low:
+                out.append({"word": w, "where": where})
+    return out
+
+
+def song_fields(r, live, ws=None):
+    """what the filter reads in a song: the working copy or the published one, and the Workshop item"""
+    p = "live_" if live else ""
+    tags = _json(r[p + "tags"], [])
+    title, desc = (ws.get("title"), ws.get("description")) if ws else (r["ws_title"], r["ws_desc"])
+    return [("title", r[p + "title"]), ("artist", r[p + "artist"]), ("tags", " | ".join(tags)), ("source", r[p + "source"]),
+            ("ws_title", title), ("ws_desc", desc)]
+
+
+def hidden(r, words=None):
+    """the published copy hits the filter (a word added after it was approved)"""
+    return bool(r["live_version"]) and bool(filter_hits(song_fields(r, True), words))
+
+
+def nick_hidden(nick, words=None):
+    return bool(filter_hits([("nick", nick)], words))
+
+
+def barcode(steamid):
+    """a nick that hits the filter, for the game: bars made from the SteamID's digits (the same author, the same bars)"""
+    return " ".join("|" * (1 + int(d) % 4) for d in str(steamid or "0")[-6:])
+
+
+def _json(v, empty):
+    try:
+        return json.loads(v) if v else empty
+    except Exception:
+        return empty
+
+
+# the age marks: swear 0 none / 1 some / 2 over 20 % of the words; lewd 0 / 1 (a sexual subtext)
+def age_of(swear, lewd):
+    swear, lewd = int(swear or 0), int(lewd or 0)
+    if swear >= 2 or (swear and lewd):
+        return 18
+    return 16 if swear or lewd else 0
+
+
+# tags: lower case, letters / digits / spaces / - / _, 2-30 characters, at most 10 (a "#" goes)
+TAG_MIN, TAG_LEN, TAG_MAX = 2, 30, 10
+_TAG_BAD = re.compile(r"[^\w \-]", re.UNICODE)
+
+
+def clean_tags(v):
+    out = []
+    for t in (v if isinstance(v, list) else []):
+        t = _TAG_BAD.sub("", str(t).replace("#", " ").lower())
+        t = re.sub(r"\s+", " ", t).strip()
+        if TAG_MIN <= len(t) <= TAG_LEN and t not in out:
+            out.append(t)
+    return out[:TAG_MAX]
+
+
+def clean_source(v):
+    v = str(v or "").strip()[:300]
+    if not v:
+        return ""
+    p = urllib.parse.urlparse(v)
+    if p.scheme not in ("http", "https") or not p.netloc or " " in v:
+        raise HTTPException(400, "the source must be an http(s) link")
+    return v
+
+
+# genres: the admins' list (meta 'genres'), a song has 1-3 of them by id; a renamed genre keeps its id
+GENRE_MAX = 3
+DEFAULT_GENRES = [("pop", "Поп", "Pop"), ("rock", "Рок", "Rock"), ("metal", "Метал", "Metal"), ("electronic", "Электроника", "Electronic"),
+                  ("dance", "Танцевальная", "Dance"), ("chiptune", "Чиптюн / 8-bit", "Chiptune / 8-bit"), ("hiphop", "Хип-хоп", "Hip-hop"),
+                  ("jazz", "Джаз", "Jazz"), ("classical", "Классика", "Classical"), ("soundtrack", "Оркестр / саундтрек", "Orchestral / soundtrack"),
+                  ("folk", "Фолк / акустика", "Folk / acoustic"), ("jpop", "J-pop / K-pop", "J-pop / K-pop"), ("mlp", "Песни из MLP", "MLP songs"),
+                  ("fan", "Фанатские песни (брони)", "Fan songs (brony)"), ("remix", "Ремикс / мэшап", "Remix / mashup"), ("other", "Другое", "Other")]
+
+
+def genres_list():
+    with _db() as con:
+        r = con.execute("SELECT value FROM meta WHERE key = 'genres'").fetchone()
+    if not r:
+        return [{"id": i, "ru": ru, "en": en} for i, ru, en in DEFAULT_GENRES]
+    return _json(r["value"], [])
+
+
+def clean_genres(v, known=None):
+    ids = {g["id"] for g in (known if known is not None else genres_list())}
+    out = []
+    for g in (v if isinstance(v, list) else []):
+        g = str(g)
+        if g in ids and g not in out:
+            out.append(g)
+    return out[:GENRE_MAX]
+
+
+# trust: +1 an approval by an admin, -3 a rejection, -1 a filter refusal (once a day per song); trusted from
+# TRUST_AT points, the mark goes below TRUST_KEEP (one slip doesn't take it away)
+TRUST_AT, TRUST_KEEP = 5, 2
+TRUST_APPROVE, TRUST_REJECT, TRUST_FILTER = 1, -3, -1
+
+
+def add_trust(con, steamid, delta):
+    r = con.execute("SELECT trust, trusted FROM users WHERE steamid = ?", (steamid,)).fetchone()
+    if not r:
+        return
+    pts = max(-20, min(50, (r["trust"] or 0) + delta))
+    trusted = 1 if pts >= TRUST_AT else (0 if pts < TRUST_KEEP else (r["trusted"] or 0))
+    con.execute("UPDATE users SET trust = ?, trusted = ? WHERE steamid = ?", (pts, trusted, steamid))
 
 
 # ---------------------------------------------------------------------------------------------- reading
@@ -235,7 +374,7 @@ def _row(u):
     if not UUID_RE.match(u or ""):
         raise HTTPException(404, "no such song")
     with _db() as con:
-        r = con.execute("SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned FROM songs s LEFT JOIN users u ON u.steamid = s.owner "
+        r = con.execute("SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned, u.trusted AS owner_trusted, u.trust AS owner_trust FROM songs s LEFT JOIN users u ON u.steamid = s.owner "
                         "WHERE s.uuid = ?", (u,)).fetchone()
     if not r or r["status"] == "deleted":
         raise HTTPException(404, "no such song")
@@ -256,7 +395,7 @@ def _workshop(wsid):
 # above what the song's notes can give is a cheat (main.py flags it): every note perfect at the top combo (9) plus
 # every hold's ticks (a quarter of the game's beat, 0.485 s, for every song: sh_mg_dance.lua D.TICK), with a margin. The game's own songs have fixed caps; any other key
 # (an installed song mod the site doesn't know) gets the most a song can hold.
-DANCE_TOP, DANCE_TICK, BUILTIN_CAPS, ANY_SONG_CAP = 9, 0.485 / 4, {"best_dance_game": 1500, "best_dance_wwu": 1700}, 30000
+DANCE_TOP, DANCE_TICK, BUILTIN_CAPS, ANY_SONG_CAP = 9, 0.485 / 4, {"best_dance_game": 1500, "best_dance_wwu": 1700}, 30000  # wwu: built in before
 _CAPS = {"t": 0, "caps": {}}
 
 
@@ -290,12 +429,24 @@ def best_cap(key):
     return caps.get(key, ANY_SONG_CAP)
 
 
-def published(r):
+def _owner(r, words=None):
+    """the author as the public sees them: the nick (or a barcode, when it hits the filter), the trust mark"""
+    hid = nick_hidden(r["owner_nick"], words)
+    return {"owner": r["owner"], "owner_nick": None if hid else r["owner_nick"], "owner_nick_hidden": hid,
+            "owner_profile": f"https://steamcommunity.com/profiles/{r['owner']}", "owner_trusted": bool(r["owner_trusted"])}
+
+
+SEL = "SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned, u.trusted AS owner_trusted, u.trust AS owner_trust FROM songs s LEFT JOIN users u ON u.steamid = s.owner"
+
+
+def published(r, words=None):
     """the published copy (what the public and the game servers get), or None"""
     if not r["live_version"]:
         return None
-    return {"uuid": r["uuid"], "title": r["live_title"], "artist": r["live_artist"] or "", "owner": r["owner"],
-            "owner_nick": r["owner_nick"], "owner_profile": f"https://steamcommunity.com/profiles/{r['owner']}",
+    swear, lewd = r["live_swear"] or 0, r["live_lewd"] or 0
+    return {"uuid": r["uuid"], "title": r["live_title"], "artist": r["live_artist"] or "", **_owner(r, words),
+            "tags": _json(r["live_tags"], []), "genres": _json(r["genres"], []), "source": r["live_source"] or "",
+            "swear": swear, "lewd": lewd, "age": age_of(swear, lewd),
             "len": r["live_len"], "beat": r["live_beat"], "version": r["live_version"], "approved_at": r["live_at"],
             "chart": json.loads(r["live_chart"]) if r["live_chart"] else None,
             "hashes": json.loads(r["live_hashes"]) if r["live_hashes"] else None,  # the game checks the downloaded mod against these
@@ -335,7 +486,9 @@ def meta_changes(r):
     if _file_sha(os.path.join(song_dir(u), "full.ogg")) != live_hashes.get(ogg):
         return False, []
     d = song_dir(u)
-    changes = [k for k, a, b in (("title", r["title"], r["live_title"]), ("artist", r["artist"] or "", r["live_artist"] or "")) if a != b]
+    changes = [k for k, a, b in (("title", r["title"], r["live_title"]), ("artist", r["artist"] or "", r["live_artist"] or ""),
+                                 ("tags", _json(r["tags"], []), _json(r["live_tags"], [])), ("source", r["source"] or "", r["live_source"] or ""),
+                                 ("age", (r["swear"] or 0, r["lewd"] or 0), (r["live_swear"] or 0, r["live_lewd"] or 0))) if a != b]
     if _file_sha(os.path.join(d, "cover.jpg")) != _file_sha(os.path.join(d, "cover_live.jpg")):
         changes.append("cover")
     if _file_sha(os.path.join(d, "preview.ogg")) != _file_sha(os.path.join(d, "preview_live.ogg")):
@@ -345,8 +498,10 @@ def meta_changes(r):
 
 def working(r):
     """the working copy, for the author / admins"""
-    return {"uuid": r["uuid"], "title": r["title"], "artist": r["artist"], "status": r["status"], "owner": r["owner"],
-            "owner_nick": r["owner_nick"], "owner_profile": f"https://steamcommunity.com/profiles/{r['owner']}",
+    return {"uuid": r["uuid"], "title": r["title"], "artist": r["artist"], "status": r["status"], **_owner(r),
+            "owner_real_nick": r["owner_nick"],   # the author / admins see their own nick
+            "tags": _json(r["tags"], []), "genres": _json(r["genres"], []), "source": r["source"] or "",
+            "swear": r["swear"] or 0, "lewd": r["lewd"] or 0, "age": age_of(r["swear"], r["lewd"]), "approved_by": r["approved_by"],
             "len": r["len"], "bpm": r["bpm"], "beat": r["beat"], "preview_start": r["preview_start"], "preview_len": r["preview_len"],
             "wsid": r["wsid"], "workshop": _workshop(r["wsid"]), "analysis": r["analysis"], "analysis_error": r["analysis_error"],
             "created": r["created"], "updated": r["updated"], "reason": r["reason"], "version": r["version"] or 0,
@@ -373,40 +528,73 @@ def _meta_fields(r):
 
 
 def _visible(r, words=None):
-    return bool(r["live_version"]) and not r["owner_banned"] and not hidden(r["live_title"], r["live_artist"], words)
+    return bool(r["live_version"]) and not r["owner_banned"] and not hidden(r, words)
 
 
 @router.get("/api/v1/songs")
-def song_list(q: str = "", limit: int = 50, offset: int = 0):
+def song_list(q: str = "", limit: int = 50, offset: int = 0, genre: str = "", tag: str = "", age: int = 0):
+    """the published songs; age: the highest age mark to show (0 = none of 16+ / 18+, 16, 18)"""
     limit, offset = max(1, min(limit, 200)), max(0, offset)
     words = ban_words()
     with _db() as con:
-        rows = con.execute("SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned FROM songs s LEFT JOIN users u ON u.steamid = s.owner "
-                           "WHERE s.live_version > 0 AND s.status != 'deleted' ORDER BY s.live_at DESC").fetchall()
-    ql = q.strip().lower()
-    out = [published(r) for r in rows if _visible(r, words)
-           and (not ql or ql in f"{r['live_title']} {r['live_artist'] or ''} {r['owner_nick'] or ''}".lower())]
-    for s in out:
-        s.pop("chart", None)  # the list stays light; GET /api/v1/songs/{uuid} has the notes
+        rows = con.execute(SEL + " WHERE s.live_version > 0 AND s.status != 'deleted' ORDER BY s.live_at DESC").fetchall()
+    ql, tag = q.strip().lower(), tag.strip().lower()
+    out = []
+    for r in rows:
+        if not _visible(r, words):
+            continue
+        p = published(r, words)
+        if p["age"] > age or (genre and genre not in p["genres"]) or (tag and tag not in p["tags"]):
+            continue
+        if ql and ql not in f"{p['title']} {p['artist']} {p['owner_nick'] or ''} {' '.join(p['tags'])}".lower():
+            continue
+        p.pop("chart", None)  # the list stays light; GET /api/v1/songs/{uuid} has the notes
+        out.append(p)
     return {"total": len(out), "songs": out[offset:offset + limit]}
+
+
+@router.get("/api/v1/genres")
+def genres():
+    return {"genres": genres_list()}
+
+
+@router.get("/api/v1/tags")
+def tag_hints(q: str = "", limit: int = 10):
+    """the tags of the published (visible) songs that start with / contain q, the most used first"""
+    words = ban_words()
+    with _db() as con:
+        rows = con.execute(SEL + " WHERE s.live_version > 0 AND s.status != 'deleted' AND s.live_tags IS NOT NULL").fetchall()
+    count = {}
+    for r in rows:
+        if _visible(r, words):
+            for t in _json(r["live_tags"], []):
+                count[t] = count.get(t, 0) + 1
+    ql = q.strip().lower().lstrip("#")
+    hits = [(t, c) for t, c in count.items() if not ql or ql in t]
+    hits.sort(key=lambda x: (not x[0].startswith(ql), -x[1], x[0]))
+    return {"tags": [{"tag": t, "count": c} for t, c in hits[:max(1, min(limit, 30))]]}
 
 
 @router.get("/api/v1/songs/game")
 def songs_for_game():
     """for the game servers: every published song with its notes, keys, Workshop item and the SHA256 of the mod's
-    files (the game checks a downloaded mod against them); the hidden ones (ban words, banned authors) are left out"""
+    files (the game checks a downloaded mod against them); the hidden ones (ban words, banned authors) are left out;
+    "age" (0 / 16 / 18) — the game server shows up to its own limit"""
     words = ban_words()
+    names = {g["id"]: g["ru"] + (" / " + g["en"] if g.get("en") and g["en"] != g["ru"] else "") for g in genres_list()}
     with _db() as con:
-        rows = con.execute("SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned FROM songs s LEFT JOIN users u ON u.steamid = s.owner "
+        rows = con.execute("SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned, u.trusted AS owner_trusted, u.trust AS owner_trust FROM songs s LEFT JOIN users u ON u.steamid = s.owner "
                            "WHERE s.live_version > 0 AND s.status != 'deleted' ORDER BY s.live_at DESC LIMIT 1000").fetchall()
     out = []
     for r in rows:
         if not _visible(r, words) or not r["live_chart"] or not r["live_hashes"] or not r["live_wsid"]:
             continue
-        p = published(r)
-        out.append({"uuid": p["uuid"], "title": p["title"], "artist": p["artist"], "author": p["owner"], "author_nick": p["owner_nick"],
+        p = published(r, words)
+        out.append({"uuid": p["uuid"], "title": p["title"], "artist": p["artist"], "author": p["owner"],
+                    "author_nick": p["owner_nick"] if not p["owner_nick_hidden"] else barcode(p["owner"]),
                     "wsid": p["wsid"], "len": p["len"], "beat": p["beat"], "version": p["version"], "file": f"sound/mlp_g5/songs/{p['uuid']}.ogg",
-                    "charts": [p["chart"]], "hashes": p["hashes"], "site": f"{SITE}/songs/{p['uuid']}" if SITE else p["page"]})
+                    "charts": [p["chart"]], "hashes": p["hashes"], "site": f"{SITE}/songs/{p['uuid']}" if SITE else p["page"],
+                    "age": p["age"], "tags": p["tags"], "genres": [names[g] for g in p["genres"] if g in names]})
     return {"songs": out}
 
 
@@ -414,7 +602,7 @@ def songs_for_game():
 def mine(request: Request):
     user = auth.require_user(request)
     with _db() as con:
-        rows = con.execute("SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned FROM songs s LEFT JOIN users u ON u.steamid = s.owner "
+        rows = con.execute("SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned, u.trusted AS owner_trusted, u.trust AS owner_trust FROM songs s LEFT JOIN users u ON u.steamid = s.owner "
                            "WHERE s.owner = ? AND s.status != 'deleted' ORDER BY s.updated DESC", (user["steamid"],)).fetchall()
     return {"songs": [working(r) for r in rows]}
 
@@ -426,7 +614,7 @@ def song(u: str, request: Request):
         return working(r)
     if not _visible(r):
         raise HTTPException(404, "no such song")
-    return published(r)
+    return published(r, ban_words())
 
 
 @router.get("/api/v1/songs/{u}/full.ogg")
@@ -570,6 +758,11 @@ async def save_chart(u: str, request: Request):
         raise HTTPException(400, "the preview must be 10-30 s inside the song")
     title = str(body.get("title", r["title"]))[:80].strip() or r["title"]
     artist = str(body.get("artist", r["artist"] or ""))[:80].strip()
+    tags = clean_tags(body["tags"]) if "tags" in body else _json(r["tags"], [])
+    genres = clean_genres(body["genres"]) if "genres" in body else _json(r["genres"], [])
+    source = clean_source(body["source"]) if "source" in body else (r["source"] or "")
+    swear = max(0, min(2, int(body.get("swear", r["swear"] or 0) or 0)))
+    lewd = 1 if body.get("lewd", r["lewd"]) else 0
     chart = {"t": times, "large": sorted(large)}
     if keys:
         chart["keys"] = keys
@@ -578,9 +771,26 @@ async def save_chart(u: str, request: Request):
     if (ps, pl) != (r["preview_start"], r["preview_len"]) and os.path.exists(os.path.join(song_dir(u), "full.ogg")):
         make_preview(u, ps, pl)
     with _db() as con:
-        con.execute("UPDATE songs SET chart = ?, preview_start = ?, preview_len = ?, title = ?, artist = ?, updated = ? WHERE uuid = ?",
-                    (json.dumps(chart), ps, pl, title, artist, _now(), u))
-    return {"ok": True, "chart": chart}
+        con.execute("UPDATE songs SET chart = ?, preview_start = ?, preview_len = ?, title = ?, artist = ?, tags = ?, genres = ?, source = ?, "
+                    "swear = ?, lewd = ?, updated = ? WHERE uuid = ?",
+                    (json.dumps(chart), ps, pl, title, artist, json.dumps(tags, ensure_ascii=False), json.dumps(genres), source, swear, lewd, _now(), u))
+        # a higher age mark is at once on the published copy too (a lower one waits for the review)
+        con.execute("UPDATE songs SET live_swear = MAX( COALESCE( live_swear, 0 ), ? ), live_lewd = MAX( COALESCE( live_lewd, 0 ), ? ) "
+                    "WHERE uuid = ? AND live_version > 0", (swear, lewd, u))
+    return {"ok": True, "chart": chart, "tags": tags, "genres": genres, "source": source}
+
+
+@router.put("/api/v1/songs/{u}/genres")
+async def save_genres(u: str, request: Request):
+    """the genres alone: no review, any status (the author / admins)"""
+    r = _row(u)
+    if not _can_edit(request, r):
+        raise HTTPException(403, "only the author")
+    body = await request.json()
+    genres = clean_genres(body.get("genres"))
+    with _db() as con:
+        con.execute("UPDATE songs SET genres = ? WHERE uuid = ?", (json.dumps(genres), u))
+    return {"ok": True, "genres": genres}
 
 
 @router.post("/api/v1/songs/{u}/trim")
@@ -890,12 +1100,26 @@ async def submit(u: str, request: Request):
         raise HTTPException(403, "this item was published by another Steam account")
     if int(d.get("banned") or 0):
         raise HTTPException(400, "Steam has banned this item")
+    ws_title, ws_desc = str(d.get("title") or "")[:300], str(d.get("description") or "")[:8000]
+    if filter_hits(song_fields(r, False, {"title": ws_title, "description": ws_desc})):
+        with _db() as con:
+            con.execute("UPDATE songs SET ws_title = ?, ws_desc = ? WHERE uuid = ?", (ws_title, ws_desc, u))
+            if (r["filter_at"] or 0) < _now() - 86400:   # a penalty once a day per song (trying again and again isn't worse)
+                con.execute("UPDATE songs SET filter_at = ? WHERE uuid = ?", (_now(), u))
+                add_trust(con, r["owner"], TRUST_FILTER)
+        raise HTTPException(422, "filtered")
     with _db() as con:
         if meta:
-            con.execute("UPDATE songs SET status = 'pending', wsid = ?, hashes = live_hashes, updated = ? WHERE uuid = ?", (wsid, _now(), u))
+            con.execute("UPDATE songs SET status = 'pending', wsid = ?, hashes = live_hashes, ws_title = ?, ws_desc = ?, updated = ? WHERE uuid = ?",
+                        (wsid, ws_title, ws_desc, _now(), u))
         else:
-            con.execute("UPDATE songs SET status = 'pending', wsid = ?, updated = ? WHERE uuid = ?", (wsid, _now(), u))
-    return {"ok": True, "wsid": wsid, "workshop_title": d.get("title"), "meta_only": meta}
+            con.execute("UPDATE songs SET status = 'pending', wsid = ?, ws_title = ?, ws_desc = ?, updated = ? WHERE uuid = ?",
+                        (wsid, ws_title, ws_desc, _now(), u))
+    # a trusted author's new version of a published song: approved at once (no admin, no trust points for it)
+    auto = bool(r["live_version"] and r["owner_trusted"])
+    if auto:
+        approve(u, "auto")
+    return {"ok": True, "wsid": wsid, "workshop_title": d.get("title"), "meta_only": meta, "auto_approved": auto}
 
 
 # ---------------------------------------------------------------------------------------------- admin
@@ -908,7 +1132,7 @@ def _admin(request):
 def admin_songs(request: Request, status: str = "", q: str = "", limit: int = 100):
     _admin(request)
     words = ban_words()
-    sql, args = "SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned FROM songs s LEFT JOIN users u ON u.steamid = s.owner WHERE s.status != 'deleted'", []
+    sql, args = "SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned, u.trusted AS owner_trusted, u.trust AS owner_trust FROM songs s LEFT JOIN users u ON u.steamid = s.owner WHERE s.status != 'deleted'", []
     if status:
         sql += " AND s.status = ?"
         args.append(status)
@@ -923,8 +1147,15 @@ def admin_songs(request: Request, status: str = "", q: str = "", limit: int = 10
             continue
         w = working(r)
         w.pop("beats", None)
-        w["hidden"] = hidden(r["title"], r["artist"], words) or (r["live_version"] and hidden(r["live_title"], r["live_artist"], words))
+        # every hit of the filter: the working copy, the published one, the author's nick
+        hits = filter_hits(song_fields(r, False), words)
+        if r["live_version"]:
+            hits += [dict(h, live=True) for h in filter_hits(song_fields(r, True), words) if h not in hits]
+        hits += filter_hits([("nick", r["owner_nick"])], words)
+        w["filter_hits"] = hits
+        w["hidden"] = hidden(r, words)
         w["owner_banned"] = bool(r["owner_banned"])
+        w["owner_trust"] = r["owner_trust"] or 0
         out.append(w)
         if len(out) >= max(1, min(limit, 500)):
             break
@@ -933,8 +1164,12 @@ def admin_songs(request: Request, status: str = "", q: str = "", limit: int = 10
 
 @router.post("/api/v1/admin/songs/{u}/approve")
 def admin_approve(u: str, request: Request):
-    """the working copy becomes the published one (the game servers switch to it)"""
+    """the working copy becomes the published one (the game servers switch to it); the author gets a trust point"""
     _admin(request)
+    return approve(u, auth.current_user(request)["steamid"])
+
+
+def approve(u, by):
     r = _row(u)
     if r["status"] != "pending" or not r["hashes"] or not r["wsid"]:
         raise HTTPException(409, "only a song waiting for the audit")
@@ -950,7 +1185,10 @@ def admin_approve(u: str, request: Request):
     with _db() as con:
         con.execute("UPDATE songs SET status = 'approved', reason = NULL, version = ?, live_version = ?, live_at = ?, live_title = title, "
                     "live_artist = artist, live_chart = chart, live_hashes = hashes, live_wsid = wsid, live_len = len, live_beat = beat, "
-                    "updated = ? WHERE uuid = ?", (ver, ver, _now(), _now(), u))
+                    "live_tags = tags, live_source = source, live_swear = swear, live_lewd = lewd, approved_by = ?, "
+                    "updated = ? WHERE uuid = ?", (ver, ver, _now(), by, _now(), u))
+        if by != "auto":
+            add_trust(con, r["owner"], TRUST_APPROVE)
     return {"ok": True, "version": ver}
 
 
@@ -964,6 +1202,7 @@ async def admin_reject(u: str, request: Request):
     reason = str(body.get("reason", "")).strip()[:300]
     with _db() as con:
         con.execute("UPDATE songs SET status = 'rejected', reason = ?, updated = ? WHERE uuid = ?", (reason or None, _now(), u))
+        add_trust(con, r["owner"], TRUST_REJECT)
     return {"ok": True}
 
 
@@ -985,7 +1224,61 @@ async def admin_set_banwords(request: Request):
             words.append(w)
     with _db() as con:
         con.execute("REPLACE INTO meta ( key, value ) VALUES ( 'ban_words', ? )", (json.dumps(words[:2000], ensure_ascii=False),))
+    _WORDS["t"] = 0
     return {"words": words[:2000]}
+
+
+@router.get("/api/v1/admin/genres")
+def admin_genres(request: Request):
+    _admin(request)
+    return {"genres": genres_list()}
+
+
+@router.put("/api/v1/admin/genres")
+async def admin_set_genres(request: Request):
+    """{ genres: [ { id?, ru, en } ] } (or lines "Русский | English"): a genre found by its id or either name keeps
+    its id (the songs keep it); a new one gets a new id; one left out disappears from the songs"""
+    _admin(request)
+    body = await request.json()
+    old = genres_list()
+    by_name = {}
+    for g in old:
+        for k in ("ru", "en"):
+            if g.get(k):
+                by_name.setdefault(g[k].strip().lower(), g["id"])
+    ids_old = {g["id"] for g in old}
+    out, used = [], set()
+    for g in body.get("genres", [])[:100]:
+        if isinstance(g, str):
+            parts = [x.strip() for x in g.split("|")]
+            g = {"ru": parts[0], "en": parts[1] if len(parts) > 1 else ""}
+        ru, en = str(g.get("ru", "")).strip()[:40], str(g.get("en", "")).strip()[:40]
+        if not ru:
+            continue
+        gid = g.get("id") if g.get("id") in ids_old else (by_name.get(ru.lower()) or by_name.get(en.lower()))
+        if not gid or gid in used:
+            base = re.sub(r"[^a-z0-9]+", "", (en or ru).lower())[:16] or "g"
+            gid, k = base, 2
+            while gid in used or gid in ids_old:
+                gid, k = f"{base}{k}", k + 1
+        used.add(gid)
+        out.append({"id": gid, "ru": ru, "en": en or ru})
+    with _db() as con:
+        con.execute("REPLACE INTO meta ( key, value ) VALUES ( 'genres', ? )", (json.dumps(out, ensure_ascii=False),))
+    return {"genres": out}
+
+
+@router.post("/api/v1/admin/users/{steamid}/trust")
+async def admin_trust(steamid: str, request: Request):
+    """{ trusted }: give / take the trusted mark by hand (the points are set to match)"""
+    _admin(request)
+    if not re.fullmatch(r"\d{17}", steamid):
+        raise HTTPException(400, "bad steamid")
+    body = await request.json()
+    on = bool(body.get("trusted"))
+    with _db() as con:
+        con.execute("UPDATE users SET trusted = ?, trust = ? WHERE steamid = ?", (1 if on else 0, TRUST_AT if on else 0, steamid))
+    return {"ok": True, "trusted": on}
 
 
 @router.post("/api/v1/admin/users/{steamid}/ban")

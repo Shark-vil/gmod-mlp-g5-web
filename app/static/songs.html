@@ -9,8 +9,19 @@
 <script src="/static/theme.js"></script>
 <script src="/static/i18n.js"></script>
 <style>
-  .bar2 { display: flex; gap: 8px; margin-bottom: 10px; }
-  .bar2 input { flex: 1; }
+  .bar2 { display: grid; grid-template-columns: 1fr 190px 210px; gap: 8px; margin-bottom: 10px; }
+  @media (max-width: 640px) { .bar2 { grid-template-columns: 1fr 1fr; } .bar2 input { grid-column: 1 / -1; } }
+  .tagon { display: flex; gap: 8px; align-items: center; margin: -2px 2px 10px; font-size: 14px; color: var(--muted); }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .tg { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--row); color: var(--text); border: 0; font: inherit; font-size: 12px; cursor: pointer; }
+  .tg:hover { outline: 1px solid var(--line); }
+  .gn { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #e9dcff; color: #4a2c8a; }
+  .age { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #fde1c8; color: #7a3a00; }
+  .age.a18 { background: #f7c9cf; color: #7d1020; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .gn { background: #3b2e63; color: #d9ccff; } :root:not([data-theme="light"]) .age { background: #5a3414; color: #ffd6ad; } :root:not([data-theme="light"]) .age.a18 { background: #5c1a24; color: #ffc4cc; } }
+  :root[data-theme="dark"] .gn { background: #3b2e63; color: #d9ccff; } :root[data-theme="dark"] .age { background: #5a3414; color: #ffd6ad; } :root[data-theme="dark"] .age.a18 { background: #5c1a24; color: #ffc4cc; }
+  .src { font-size: 14px; margin: 6px 0; overflow-wrap: anywhere; }
+  .src a { color: var(--text); }
   .song { display: grid; grid-template-columns: 56px 1fr auto; gap: 6px 12px; padding: 12px; border-top: 1px solid var(--line); align-items: center; }
   .song img.cv { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: var(--row); grid-row: span 2; align-self: start; }
   .one .head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; }
@@ -40,13 +51,20 @@
 <div class="bar"></div>
 <main>
   <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay · песни</b><span id="account"></span></div>
-  <nav class="links"><a href="/">Рекорды</a><a href="/songs" class="on">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a></nav>
+  <nav class="links"><a href="/">Рекорды</a><a href="/songs" class="on">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a><a href="/rules">Правила</a></nav>
   <div id="list">
-    <div class="bar2"><input id="q" type="search" placeholder="Найти песню, исполнителя или автора" aria-label="Поиск песен"></div>
+    <div class="bar2">
+      <input id="q" type="search" placeholder="Найти песню, исполнителя, автора или тег" aria-label="Поиск песен">
+      <select id="genre" aria-label="Жанр"><option value="">все жанры</option></select>
+      <select id="age" aria-label="Возрастные метки" title="Песни с метками 16+ / 18+ скрыты, пока вы их не включите">
+        <option value="0">без меток 16+ / 18+</option><option value="16">показывать 16+</option><option value="18">показывать 16+ и 18+</option></select>
+    </div>
+    <div class="tagon" id="tagon" hidden><span>тег:</span><b id="tagname"></b><button class="btn" id="tagoff" title="Убрать фильтр по тегу">✕</button></div>
     <div class="card" id="rows"><div class="empty">…</div></div>
     <div style="text-align:center;margin-top:10px"><button class="btn" id="more" hidden>Показать ещё</button></div>
     <p class="note">Песни для мини-игры «Танец». Их делают игроки в редакторе (вкладка «Мои песни») и выкладывают модом в Мастерскую;
-      в игре песню выбирают голосованием в лобби, мод скачивается сам. Здесь звучит только фрагмент.</p>
+      в игре песню выбирают голосованием в лобби, мод скачивается сам. Здесь звучит только фрагмент.
+      <a href="/rules">Правила песен</a>.</p>
   </div>
   <div id="one" hidden></div>
 </main>
@@ -58,13 +76,28 @@ function el(tag, text, cls) { const e = document.createElement(tag); if (text) e
 function a(text, href, ext) { const x = el("a", text); x.href = href; if (ext) { x.target = "_blank"; x.rel = "noopener"; } return x; }
 const one = location.pathname.match(/^\/songs\/([0-9a-f-]{36})$/);
 
+let GENRES = [];
+const gname = id => { const g = GENRES.find(x => x.id === id); return g ? (mlpLang() === "en" ? g.en || g.ru : g.ru) : null; };
+function ageBadge(age) { const b = el("span", age + "+", "age" + (age >= 18 ? " a18" : "")); b.title = tx(age >= 18 ? "18+: много мата или мат и эротический подтекст" : "16+: мат или эротический подтекст"); return b; }
+function badges(s, clickable) {
+  const box = el("div", null, "badges");
+  if (s.age) box.appendChild(ageBadge(s.age));
+  (s.genres || []).map(gname).filter(Boolean).forEach(n => box.appendChild(el("span", n, "gn")));
+  (s.tags || []).forEach(t => {
+    const b = el(clickable ? "button" : "a", "#" + t, "tg");
+    if (clickable) { b.type = "button"; b.title = tx("Песни с тегом «{0}»", t); b.onclick = () => setTag(t); } else { b.href = "/songs?tag=" + encodeURIComponent(t); }
+    box.appendChild(b);
+  });
+  return box;
+}
 function songRow(s) {
   const row = el("div", null, "song");
   const t = el("div", null, "t"); t.appendChild(a(s.title, s.page));
   const sub = el("div", null, "sub");
   [s.artist, mmss(s.len)].filter(Boolean).forEach(x => sub.append(x, " · ")); sub.append("автор", " ");
-  sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile, true));
+  sub.appendChild(mlpAuthor(s));
   const left = el("div"); left.append(t, sub);
+  if (s.age || (s.genres || []).length || (s.tags || []).length) left.appendChild(badges(s, true));
   const ws = el("div", null, "ws");
   if (s.workshop) { const b = a("Мод в Мастерской", s.workshop, true); b.className = "btn"; ws.appendChild(b); }
   const au = el("audio"); au.controls = true; au.preload = "none"; au.src = s.preview;
@@ -73,15 +106,21 @@ function songRow(s) {
   return row;
 }
 
-let offset = 0, timer = null;
+let offset = 0, timer = null, tag = new URLSearchParams(location.search).get("tag") || "";
+function setTag(t) {
+  tag = t || ""; $("tagon").hidden = !tag; $("tagname").textContent = tag ? "#" + tag : "";
+  history.replaceState(null, "", tag ? "/songs?tag=" + encodeURIComponent(tag) : "/songs");
+  list(true);
+}
 async function list(reset) {
   if (reset) offset = 0;
   const q = $("q").value.trim();
   let res = { songs: [], total: 0 };
-  try { res = await (await fetch(`/api/v1/songs?limit=30&offset=${offset}&q=${encodeURIComponent(q)}`)).json(); } catch (e) {}
+  const qs = `limit=30&offset=${offset}&q=${encodeURIComponent(q)}&genre=${encodeURIComponent($("genre").value)}&tag=${encodeURIComponent(tag)}&age=${$("age").value}`;
+  try { res = await (await fetch("/api/v1/songs?" + qs)).json(); } catch (e) {}
   const box = $("rows");
   if (reset) box.textContent = "";
-  if (!res.songs.length && reset) { box.appendChild(el("div", q ? "Ничего не нашлось" : "Песен пока нет — загрузите первую в «Мои песни»", "empty")); }
+  if (!res.songs.length && reset) { box.appendChild(el("div", q || tag || $("genre").value ? "Ничего не нашлось" : "Песен пока нет — загрузите первую в «Мои песни»", "empty")); }
   res.songs.forEach(s => box.appendChild(songRow(s)));
   offset += res.songs.length;
   $("more").hidden = offset >= res.total;
@@ -99,7 +138,14 @@ async function page(u) {
   const head = el("div", null, "head"); const hi = el("img"); hi.src = s.cover; hi.alt = "Обложка"; head.appendChild(hi);
   const ht = el("div"); ht.appendChild(el("h1", s.title));
   const sub = el("div", null, "note"); if (s.artist) sub.append(s.artist, " · "); sub.append("автор", " ");
-  sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile, true)); ht.appendChild(sub); head.appendChild(ht); box.appendChild(head);
+  sub.appendChild(mlpAuthor(s)); ht.appendChild(sub);
+  if (s.age || (s.genres || []).length || (s.tags || []).length) ht.appendChild(badges(s, false));
+  head.appendChild(ht); box.appendChild(head);
+  if (s.source) {
+    let host = s.source; try { host = new URL(s.source).hostname; } catch (e) {}
+    const p = el("div", null, "src"); p.append("Источник:", " ");
+    const l = a(host, mlpAway(s.source)); l.rel = "nofollow"; l.title = s.source; p.appendChild(l); box.appendChild(p);
+  }
   const au = el("audio"); au.controls = true; au.preload = "metadata"; au.src = s.preview; au.style.width = "100%"; box.appendChild(au);
   const f = el("div", null, "facts");
   const notes = s.chart ? s.chart.t.length : 0, holds = s.chart ? s.chart.large.length : 0;
@@ -122,12 +168,20 @@ async function page(u) {
   const back = a("← Все песни", "/songs"); back.style.color = "var(--muted)"; box.appendChild(back);
 }
 
-if (one) page(one[1]);
-else {
+async function start() {
+  try { GENRES = (await (await fetch("/api/v1/genres")).json()).genres || []; } catch (e) {}
+  if (one) { page(one[1]); return; }
+  const fill = () => { const v = $("genre").value; $("genre").length = 1; GENRES.forEach(g => { const o = el("option", gname(g.id)); o.value = g.id; $("genre").appendChild(o); }); $("genre").value = v; };
+  fill(); document.addEventListener("mlp-lang", () => { fill(); list(true); });
+  const saved = window.mlpStore.get("mlpSongsAge"); if (saved === "16" || saved === "18") $("age").value = saved;
   $("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => list(true), 250); });
+  $("genre").onchange = () => list(true);
+  $("age").onchange = () => { window.mlpStore.set("mlpSongsAge", $("age").value); list(true); };
+  $("tagoff").onclick = () => setTag("");
   $("more").onclick = () => list(false);
-  list(true);
+  if (tag) setTag(tag); else list(true);
 }
+start();
 </script>
 </body>
 </html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Переход на другой сайт — Maretime Bay</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/site.css">
+<script src="/static/theme.js"></script>
+<script src="/static/i18n.js"></script>
+<style>
+  main { max-width: 620px; }
+  .away { padding: 20px 22px; }
+  .away h1 { margin: 0 0 12px; font-size: 21px; }
+  .host { font-size: 24px; font-weight: 800; overflow-wrap: anywhere; margin: 6px 0 2px; }
+  .url { font: 13px/1.4 ui-monospace, monospace; color: var(--muted); overflow-wrap: anywhere; background: var(--row); border-radius: 8px; padding: 6px 9px; }
+  .away p { margin: 12px 0; }
+  .warnbox { border-left: 4px solid #d9822b; background: var(--row); border-radius: 0 10px 10px 0; padding: 10px 14px; margin: 14px 0; }
+  .acts { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="bar"></div>
+<main>
+  <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay</b><span id="account"></span></div>
+  <div class="card away" id="box">
+    <h1>Вы покидаете сайт</h1>
+    <div id="ok" hidden>
+      <div>Ссылка ведёт на сайт</div>
+      <div class="host" id="host"></div>
+      <div class="url" id="url"></div>
+      <div class="warnbox" data-i18n="awayWarn">Эту ссылку указал пользователь, сайт Maretime Bay не проверяет её содержимое. На другом сайте может
+        оказаться что угодно — в том числе неприятное, шокирующее или опасное (мошенничество, вирусы). Переходите, только если
+        уверены, куда ведёт ссылка, и понимаете риски.</div>
+      <div class="acts"><a class="btn main" id="go" rel="noopener noreferrer nofollow">Перейти</a><button class="btn" id="back">Назад</button></div>
+    </div>
+    <p id="bad" hidden>Ссылка неправильная или небезопасная — переход отменён.</p>
+  </div>
+</main>
+<script src="/static/site.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let u = null;
+try { u = new URL(new URLSearchParams(location.search).get("r") || ""); } catch (e) {}
+if (u && (u.protocol === "https:" || u.protocol === "http:") && u.hostname) {
+  $("ok").hidden = false;
+  $("host").textContent = u.hostname;
+  $("url").textContent = u.href;
+  $("go").href = u.href;
+  $("go").textContent = tx("Перейти на {0}", u.hostname);
+} else $("bad").hidden = false;
+$("back").onclick = () => { if (history.length > 1) history.back(); else location.href = "/songs"; };
+</script>
+</body>
+</html>

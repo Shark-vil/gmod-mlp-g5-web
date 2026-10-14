@@ -102,13 +102,42 @@
   details.more > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
   details.more > summary:hover { color: var(--text); }
   details.more p { margin: 4px 0; font-size: 13px; color: var(--muted); }
+  /* about the song: genres, tags, the source, the age marks */
+  .side .about { grid-column: 1 / -1; }
+  .arow { display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px; align-items: start; margin: 8px 0; }
+  .arow > .alab { font-size: 13px; color: var(--muted); padding-top: 6px; }
+  .ahint { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .genres { display: flex; flex-wrap: wrap; gap: 5px; }
+  .genres button { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 4px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+  .genres button.on { background: #6b3fc4; border-color: #6b3fc4; color: #fff; }
+  .genres button:disabled { opacity: .4; cursor: default; }
+  .tagwrap { position: relative; }
+  .tagbox { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 5px 7px; background: var(--card); cursor: text; }
+  .tagbox:focus-within { outline: 2px solid var(--pink); outline-offset: -1px; }
+  .tagbox input { border: 0; outline: 0; padding: 3px 2px; flex: 1 1 140px; min-width: 120px; width: auto; background: transparent; }
+  .tagchip { display: inline-flex; align-items: center; gap: 2px; background: var(--row); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: 13px; }
+  .tagchip button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 3px; }
+  .tagchip button:hover { color: #c0392b; }
+  .tagsug { position: absolute; left: 0; right: 0; top: 100%; margin-top: 3px; z-index: 20; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgba(60, 20, 110, .18); padding: 4px; }
+  .tagsug div { padding: 5px 9px; border-radius: 7px; cursor: pointer; font-size: 14px; display: flex; justify-content: space-between; gap: 10px; }
+  .tagsug div.on, .tagsug div:hover { background: var(--row); }
+  .tagsug small { color: var(--muted); }
+  .marks { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding-top: 4px; }
+  .marks select { width: auto; padding: 4px 8px; }
+  .marks a { font-size: 13px; color: var(--muted); }
+  .agebadge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--row); color: var(--muted); }
+  .agebadge.a16 { background: #fde1c8; color: #7a3a00; } .agebadge.a18 { background: #f7c9cf; color: #7d1020; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .agebadge.a16 { background: #5a3414; color: #ffd6ad; } :root:not([data-theme="light"]) .agebadge.a18 { background: #5c1a24; color: #ffc4cc; } }
+  :root[data-theme="dark"] .agebadge.a16 { background: #5a3414; color: #ffd6ad; } :root[data-theme="dark"] .agebadge.a18 { background: #5c1a24; color: #ffc4cc; }
+  .pub .rules { color: var(--text); }
+  @media (max-width: 560px) { .arow { grid-template-columns: 1fr; } .arow > .alab { padding-top: 0; } }
   details.help { margin-top: 8px; padding: 10px 14px; }
   details.help > summary { cursor: pointer; font-weight: 700; font-size: 15px; }
   .help-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0 28px; }
   .help h4 { margin: 12px 0 4px; font-size: 14px; }
   .help ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
   .help li { margin: 3px 0; }
-  .locked .notebar, .locked #title, .locked #artist, .locked #auto, .locked #clear, .locked #save, .locked #rec, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #coverUp, .locked #coverDrop, .locked #recReplace, .locked #recOffset { pointer-events: none; opacity: .45; }
+  .locked .notebar, .locked #title, .locked #artist, .locked #auto, .locked #clear, .locked #save, .locked #rec, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #coverUp, .locked #coverDrop, .locked #recReplace, .locked #recOffset, .locked .tagwrap, .locked #source, .locked .marks label, .locked .marks select { pointer-events: none; opacity: .45; }
   @media (max-width: 760px) { .head, .side { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -116,7 +145,7 @@
 <div class="bar"></div>
 <main>
   <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay · редактор песни</b><span id="account"></span></div>
-  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a></nav>
+  <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a><a href="/rules">Правила</a></nav>
   <div id="out" class="card msg">Загрузка…</div>
   <div id="ed" hidden>
     <div class="card head">
@@ -174,6 +203,24 @@
       <span class="status" id="status"></span>
     </div>
     <div class="side">
+      <div class="card about" id="about">
+        <h3>О песне</h3>
+        <div class="arow"><span class="alab">Жанры</span><div><div class="genres" id="genres"></div>
+          <div class="ahint">До трёх. Меняются сразу, без проверки — и у опубликованной песни.</div></div></div>
+        <div class="arow"><label class="alab" for="taginput">Теги</label><div class="tagwrap">
+          <div class="tagbox" id="tagbox"><span id="tagchips" style="display:contents"></span><input id="taginput" maxlength="300" autocomplete="off" placeholder="тег, затем Enter или запятая" aria-label="Новый тег"></div>
+          <div class="tagsug" id="tagsug" hidden role="listbox"></div>
+          <div class="ahint">До 10 тегов, от 2 до 30 символов: о самой песне (жанр, настроение, персонажи). Можно вставить «pony, dance» или «#pony #dance».</div></div></div>
+        <div class="arow"><label class="alab" for="source">Источник</label><div><input id="source" type="url" maxlength="300" placeholder="https://… — ссылка на оригинал песни">
+          <div class="ahint">Необязательно. Посетители перейдут по ней только через страницу-предупреждение.</div></div></div>
+        <div class="arow"><span class="alab">Метки</span><div class="marks">
+          <label class="chk"><input type="checkbox" id="swear"> Есть мат</label>
+          <select id="swearMuch" hidden aria-label="Сколько мата"><option value="1">немного</option><option value="2">больше 20 % текста</option></select>
+          <label class="chk"><input type="checkbox" id="lewd"> Эротический подтекст</label>
+          <span class="agebadge" id="ageBadge"></span>
+          <a href="/rules" target="_blank">Правила песен</a>
+        </div></div>
+      </div>
       <div class="card">
         <h3>Live-запись</h3>
         <label class="chk" title="Вкл.: все старые ноты между началом и концом записи стираются, остаются только записанные. Выкл.: старые остаются, убираются лишь те, что ближе 0,25 с к новым."><input type="checkbox" id="recReplace" checked> Стирать старые ноты там, где шла запись</label>
@@ -335,6 +382,7 @@ async function load() {
   showTrim(); showCover();
   $("title").value = song.title; $("artist").value = song.artist || "";
   $("pstart").value = song.preview_start || 0; $("plen").value = String(Math.round(song.preview_len || 20));
+  await loadAbout();
   $("facts").textContent = `${mmss(song.len)} · ${song.bpm || "?"} BPM`;
   $("out").hidden = true; $("ed").hidden = false;
   resize(); checkWarnings(); setStatus(song.status === "draft" ? "сохранено" : "только просмотр");
@@ -344,16 +392,23 @@ async function load() {
 
 // ------------------------------------------------------------------ publishing: build the mod -> Workshop -> the audit
 function el(tag, text, cls) { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; }
+let autoNote = false;   // the last submit was published at once (a trusted author)
+// the content filter refused the submit: what to change, and the rules
+function filtered(msg) {
+  msg.className = "bad"; msg.textContent = "";
+  msg.append("Мод не прошёл автоматическую фильтрацию контента. Попробуйте изменить данные мода в Мастерской (название, описание) или название, исполнителя, теги или источник песни.", " ");
+  const a = el("a", "Правила песен", "rules"); a.href = "/rules"; a.target = "_blank"; msg.appendChild(a);
+}
 function publishPanel() {
   const box = $("pub"); box.textContent = "";
   box.appendChild(el("h3", "Публикация"));
   if (song.status === "draft" && song.meta_only) {
     // a new version of a published song with the same notes and sound: the published mod still fits it
-    const names = { title: "название", artist: "исполнитель", cover: "обложка", preview: "фрагмент для прослушивания" };
+    const names = { title: "название", artist: "исполнитель", cover: "обложка", preview: "фрагмент для прослушивания", tags: "теги", source: "источник", age: "возрастные метки" };
     if (song.meta_changes.length) {
       box.appendChild(el("p", "Изменено: " + song.meta_changes.map(k => tx(names[k])).join(", ") + ". Ноты и звук те же, что в опубликованной версии, поэтому мод собирать и выкладывать заново не нужно — изменения сразу уйдут на проверку.", "ok"));
     } else {
-      box.appendChild(el("p", "Ноты и звук те же, что в опубликованной версии. Если поменять только название, исполнителя, обложку или фрагмент для прослушивания, мод собирать заново не нужно — изменения сразу уйдут на проверку."));
+      box.appendChild(el("p", "Ноты и звук те же, что в опубликованной версии. Если поменять только название, исполнителя, теги, источник, метки, обложку или фрагмент для прослушивания, мод собирать заново не нужно — изменения сразу уйдут на проверку."));
     }
     box.appendChild(el("p", "Поменяете ноты, длину или звук — понадобится собрать мод и обновить его в Мастерской."));
     const row = el("div", null, "row");
@@ -369,9 +424,11 @@ function publishPanel() {
       const j = await r.json().catch(() => ({}));
       send.disabled = false;
       if (!r.ok) {
+        if (r.status === 422) return filtered(msg);
         const why = { 403: "Этот мод выложен другим аккаунтом Steam.", 404: "Steam больше не видит опубликованный мод — проверьте его в Мастерской (скрытый мод тоже не виден)." }[r.status];
         msg.className = "bad"; msg.textContent = why || ("Не получилось: " + (j.detail || r.status)); return;
       }
+      autoNote = !!j.auto_approved;
       song = await (await fetch("/api/v1/songs/" + UUID)).json();
       $("ed").classList.add("locked"); setStatus("только просмотр"); publishPanel();
     };
@@ -427,9 +484,11 @@ function publishPanel() {
       const j = await r.json().catch(() => ({}));
       send.disabled = false;
       if (!r.ok) {
+        if (r.status === 422) return filtered(msg);
         const why = { 403: "Этот мод выложен другим аккаунтом Steam (или песня ещё не собрана).", 404: "Steam не знает такой мод — проверьте ссылку; скрытый мод тоже не виден.", 409: "Этот мод уже привязан к другой песне." }[r.status];
         msg.className = "bad"; msg.textContent = why || ("Не получилось: " + (j.detail || r.status)); return;
       }
+      autoNote = !!j.auto_approved;
       song = await (await fetch("/api/v1/songs/" + UUID)).json(); publishPanel();
     };
     back.onclick = async () => {
@@ -461,11 +520,13 @@ function publishPanel() {
     return b;
   };
   if (song.status === "approved") {
+    if (autoNote) { box.appendChild(el("p", "Вы проверенный автор: новая версия опубликована сразу, без ожидания проверки.", "ok")); autoNote = false; }
     const p = el("p", `Песня опубликована (версия ${pub ? pub.version : 1}) — она в общем списке и в игре. `, "ok");
     p.appendChild(link("Страница песни", "/songs/" + UUID)); p.append(" · ");
     if (song.workshop) p.appendChild(link("Мод в Мастерской", song.workshop));
     box.appendChild(p);
     box.appendChild(el("p", "Нужно поправить ноты? «Изменить» откроет новую версию: опубликованная остаётся в игре, пока новую не одобрят. Потом соберите мод и обновите его в Мастерской — звук загружать заново не нужно. Если поменять только название, исполнителя или обложку, мод собирать не нужно — новая версия сразу уйдёт на проверку."));
+    if (song.owner_trusted) box.appendChild(el("p", "✔ Вы проверенный автор: новые версии этой песни публикуются сразу после автоматической проверки."));
     box.appendChild(revise("Изменить", null));
     return;
   }
@@ -1042,6 +1103,114 @@ $("recStop").onclick = recStop;
 document.addEventListener("keydown", recKeyDown, true);
 document.addEventListener("keyup", recKeyUp, true);
 
+// ------------------------------------------------------------------ about the song: genres, tags, the source, the age marks
+let tags = [], genresSel = [], GENRES = [];
+const TAG_MAX = 10, GENRE_MAX = 3;
+async function loadAbout() {
+  if (!GENRES.length) { try { GENRES = (await (await fetch("/api/v1/genres")).json()).genres || []; } catch (e) {} }
+  tags = (song.tags || []).slice(); genresSel = (song.genres || []).filter(id => GENRES.some(g => g.id === id));
+  $("source").value = song.source || "";
+  $("swear").checked = song.swear > 0; $("swearMuch").value = String(song.swear > 1 ? 2 : 1); $("lewd").checked = !!song.lewd;
+  renderGenres(); renderTags(); showAge();
+}
+function renderGenres() {
+  const box = $("genres"); box.textContent = "";
+  GENRES.forEach(g => {
+    const on = genresSel.includes(g.id), b = el("button", mlpLang() === "en" ? g.en || g.ru : g.ru);
+    b.type = "button"; b.classList.toggle("on", on); b.disabled = !on && genresSel.length >= GENRE_MAX;
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+    b.onclick = async () => {
+      genresSel = on ? genresSel.filter(x => x !== g.id) : genresSel.concat(g.id);
+      renderGenres();
+      if (locked()) {   // published / in review: genres need no review, saved at once
+        const r = await fetch("/api/v1/songs/" + UUID + "/genres", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ genres: genresSel }) });
+        setStatus(r.ok ? "жанры сохранены" : "жанры не сохранились");
+      } else { dirty = true; setStatus("есть несохранённые изменения"); }
+    };
+    box.appendChild(b);
+  });
+}
+document.addEventListener("mlp-lang", () => { if (song) renderGenres(); });
+// a tag as the site keeps it: lower case, letters / digits / spaces / - / _, 2-30 characters
+function normTag(t) { return String(t).replace(/#/g, " ").toLowerCase().replace(/[^\p{L}\p{N}_ \-]/gu, "").replace(/\s+/g, " ").trim(); }
+function addTags(list) {
+  let added = 0, bad = 0;
+  list.forEach(raw => {
+    const t = normTag(raw); if (!t) return;
+    if (t.length < 2 || t.length > 30) { bad++; return; }
+    if (tags.includes(t) || tags.length >= TAG_MAX) return;
+    tags.push(t); added++;
+  });
+  if (added) { dirty = true; setStatus("есть несохранённые изменения"); }
+  if (bad) setStatus(tx("тег — от 2 до 30 символов"));
+  else if (tags.length >= TAG_MAX && list.length) setStatus(tx("не больше {n} тегов", TAG_MAX));
+  renderTags();
+}
+// "a, b, c" or "#a #b_c": every piece a tag (the # goes)
+function splitTags(text) { return /#/.test(text) ? text.split(/[#,\n]+/) : text.split(/[,\n]+/); }
+function renderTags() {
+  const box = $("tagchips"); box.textContent = "";
+  tags.forEach((t, i) => {
+    const c = el("span", null, "tagchip"); c.append(t);
+    const x = el("button", "×"); x.type = "button"; x.setAttribute("aria-label", tx("убрать тег {0}", t));
+    x.onclick = () => { tags.splice(i, 1); dirty = true; setStatus("есть несохранённые изменения"); renderTags(); $("taginput").focus(); };
+    c.appendChild(x); box.appendChild(c);
+  });
+  $("taginput").placeholder = tags.length >= TAG_MAX ? tx("не больше {n} тегов", TAG_MAX) : tx("тег, затем Enter или запятая");
+}
+let sug = [], sugAt = -1, sugTimer = null;
+function showSug() {
+  const box = $("tagsug"); box.textContent = "";
+  box.hidden = !sug.length;
+  sug.forEach((x, i) => {
+    const d = el("div"); d.classList.toggle("on", i === sugAt); d.setAttribute("role", "option");
+    d.append(x.tag); d.appendChild(el("small", String(x.count)));
+    d.onmousedown = e => { e.preventDefault(); pickSug(i); };
+    box.appendChild(d);
+  });
+}
+function pickSug(i) { const x = sug[i]; if (!x) return; $("taginput").value = ""; sug = []; showSug(); addTags([x.tag]); }
+async function askSug() {
+  const q = normTag($("taginput").value);
+  if (!q) { sug = []; showSug(); return; }
+  try { sug = ((await (await fetch("/api/v1/tags?limit=8&q=" + encodeURIComponent(q))).json()).tags || []).filter(x => !tags.includes(x.tag)); } catch (e) { sug = []; }
+  sugAt = -1; showSug();
+}
+$("tagbox").addEventListener("mousedown", e => { if (e.target === $("tagbox")) { e.preventDefault(); $("taginput").focus(); } });
+$("taginput").addEventListener("keydown", e => {
+  const inp = $("taginput");
+  if (e.key === "ArrowDown" && sug.length) { e.preventDefault(); sugAt = (sugAt + 1) % sug.length; showSug(); return; }
+  if (e.key === "ArrowUp" && sug.length) { e.preventDefault(); sugAt = (sugAt - 1 + sug.length) % sug.length; showSug(); return; }
+  if (e.key === "Escape") { sug = []; showSug(); return; }
+  if (e.key === "Enter" || e.key === ",") {
+    e.preventDefault();
+    if (sugAt >= 0) { pickSug(sugAt); return; }
+    if (inp.value.trim()) { addTags(splitTags(inp.value)); inp.value = ""; sug = []; showSug(); }
+    return;
+  }
+  if (e.key === "Backspace" && !inp.value && tags.length) { tags.pop(); dirty = true; setStatus("есть несохранённые изменения"); renderTags(); }
+});
+$("taginput").addEventListener("input", () => {
+  const inp = $("taginput");
+  if (/[,\n]/.test(inp.value)) { addTags(splitTags(inp.value)); inp.value = ""; sug = []; showSug(); return; }
+  clearTimeout(sugTimer); sugTimer = setTimeout(askSug, 150);
+});
+$("taginput").addEventListener("paste", e => {
+  const text = (e.clipboardData || window.clipboardData).getData("text");
+  if (!/[,#\n]/.test(text)) return;   // one tag: as typed
+  e.preventDefault(); addTags(splitTags($("taginput").value + text)); $("taginput").value = ""; sug = []; showSug();
+});
+$("taginput").addEventListener("blur", () => { sug = []; showSug(); });
+function ageOf(swear, lewd) { return swear >= 2 || (swear && lewd) ? 18 : (swear || lewd ? 16 : 0); }
+function showAge() {
+  $("swearMuch").hidden = !$("swear").checked;
+  const a = ageOf($("swear").checked ? +$("swearMuch").value : 0, $("lewd").checked ? 1 : 0), b = $("ageBadge");
+  b.className = "agebadge" + (a ? " a" + a : ""); b.textContent = a ? a + "+" : tx("без меток");
+  b.title = a ? tx("Песни {0}+ на сайте и в игре скрыты, пока игрок сам не включит их показ", a) : "";
+}
+["swear", "swearMuch", "lewd"].forEach(id => $(id).addEventListener("change", () => { showAge(); dirty = true; setStatus("есть несохранённые изменения"); $(id).blur(); }));
+$("source").addEventListener("input", () => { dirty = true; setStatus("есть несохранённые изменения"); });
+
 // ------------------------------------------------------------------ the cover
 function showCover() {
   $("coverImg").src = song.cover + "&r=" + Date.now();
@@ -1114,11 +1283,13 @@ async function save() {
   if (problems().some(p => p.hard)) { setStatus("исправьте отмеченные ⛔ ноты"); return false; }
   setStatus("сохраняется…");
   const body = { t: notes.map(n => n.t), large: notes.map((n, i) => n.hold ? i + 1 : 0).filter(Boolean), keys: notes.map(n => n.hold ? "" : (n.key || "")), lens: notes.map(n => n.hold ? hl(n) : 0),
-    preview_start: +$("pstart").value, preview_len: +$("plen").value, title: $("title").value, artist: $("artist").value };
+    preview_start: +$("pstart").value, preview_len: +$("plen").value, title: $("title").value, artist: $("artist").value,
+    tags, genres: genresSel, source: $("source").value.trim(), swear: $("swear").checked ? +$("swearMuch").value : 0, lewd: $("lewd").checked ? 1 : 0 };
   const r = await fetch("/api/v1/songs/" + UUID + "/chart", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (r.ok) { dirty = false; setStatus("сохранено"); refreshMeta(); return true; }
   const j = await r.json().catch(() => ({}));
-  setStatus("не сохранилось: " + (j.detail || r.status));
+  const why = { "the source must be an http(s) link": tx("источник — нужна ссылка http:// или https://") }[j.detail];
+  setStatus("не сохранилось: " + (why || j.detail || r.status));
   return false;
 }
 $("save").onclick = save;
