@@ -15,6 +15,7 @@ Titles / artists with a word of the admins' BAN_WORDS list are hidden from the p
 
   POST   /api/v1/songs                  multipart: file, title, artist   -> { uuid }
   GET    /api/v1/songs                  the published songs (?q= search, ?limit, ?offset)
+  GET    /api/v1/songs/game             for the game servers: the published songs with notes, keys, Workshop item, hashes
   GET    /api/v1/songs/mine             the player's own songs
   GET    /api/v1/songs/{uuid}           the song: published copy for everybody, working copy + beat grid for the author / admins
   GET    /api/v1/songs/{uuid}/full.ogg  the full track (author / admins)
@@ -273,6 +274,25 @@ def song_list(q: str = "", limit: int = 50, offset: int = 0):
     for s in out:
         s.pop("chart", None)  # the list stays light; GET /api/v1/songs/{uuid} has the notes
     return {"total": len(out), "songs": out[offset:offset + limit]}
+
+
+@router.get("/api/v1/songs/game")
+def songs_for_game():
+    """for the game servers: every published song with its notes, keys, Workshop item and the SHA256 of the mod's
+    files (the game checks a downloaded mod against them); the hidden ones (ban words, banned authors) are left out"""
+    words = ban_words()
+    with _db() as con:
+        rows = con.execute("SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned FROM songs s LEFT JOIN users u ON u.steamid = s.owner "
+                           "WHERE s.live_version > 0 AND s.status != 'deleted' ORDER BY s.live_at DESC LIMIT 1000").fetchall()
+    out = []
+    for r in rows:
+        if not _visible(r, words) or not r["live_chart"] or not r["live_hashes"] or not r["live_wsid"]:
+            continue
+        p = published(r)
+        out.append({"uuid": p["uuid"], "title": p["title"], "artist": p["artist"], "author": p["owner"], "author_nick": p["owner_nick"],
+                    "wsid": p["wsid"], "len": p["len"], "beat": p["beat"], "version": p["version"], "file": f"sound/mlp_g5/songs/{p['uuid']}.ogg",
+                    "charts": [p["chart"]], "hashes": p["hashes"], "site": f"{SITE}/songs/{p['uuid']}" if SITE else p["page"]})
+    return {"songs": out}
 
 
 @router.get("/api/v1/songs/mine")
