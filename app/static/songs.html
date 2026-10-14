@@ -8,14 +8,17 @@
 <style>
   .bar2 { display: flex; gap: 8px; margin-bottom: 10px; }
   .bar2 input { flex: 1; }
-  .song { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 12px; border-top: 1px solid var(--line); }
+  .song { display: grid; grid-template-columns: 56px 1fr auto; gap: 6px 12px; padding: 12px; border-top: 1px solid var(--line); align-items: center; }
+  .song img.cv { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: var(--row); grid-row: span 2; align-self: start; }
+  .one .head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; }
+  .one .head img { width: 120px; height: 120px; border-radius: 14px; object-fit: cover; background: var(--row); flex: none; }
   .song:first-child { border-top: 0; }
   .song .t { font-weight: 600; font-size: 16px; overflow-wrap: anywhere; }
   .song .t a { color: var(--text); text-decoration: none; }
   .song .t a:hover { text-decoration: underline; }
   .song .sub { color: var(--muted); font-size: 13px; }
   .song .sub a { color: var(--muted); }
-  .song audio { width: 100%; height: 34px; grid-column: 1 / -1; }
+  .song audio { width: 100%; height: 34px; grid-column: 2 / -1; }
   .song .ws { align-self: start; }
   .one h1 { margin: 0 0 4px; font-size: 22px; }
   .one { padding: 14px; }
@@ -58,7 +61,8 @@ function songRow(s) {
   const ws = el("div", null, "ws");
   if (s.workshop) { const b = a("Мод в Мастерской", s.workshop, true); b.className = "btn"; ws.appendChild(b); }
   const au = el("audio"); au.controls = true; au.preload = "none"; au.src = s.preview;
-  row.append(left, ws, au);
+  const img = el("img", null, "cv"); img.src = s.cover; img.alt = ""; img.loading = "lazy";
+  row.append(img, left, ws, au);
   return row;
 }
 
@@ -85,9 +89,10 @@ async function page(u) {
   if (s.status && !s.published) { box.textContent = "Песня ещё не опубликована. "; box.appendChild(a("Открыть в редакторе", "/editor/" + u)); return; }
   if (s.status) s = s.published;   // the author / an admin got the working copy: show the published one here
   document.title = s.title + " — песни Maretime Bay";
-  box.appendChild(el("h1", s.title));
+  const head = el("div", null, "head"); const hi = el("img"); hi.src = s.cover; hi.alt = "Обложка"; head.appendChild(hi);
+  const ht = el("div"); ht.appendChild(el("h1", s.title));
   const sub = el("div", null, "note"); sub.append((s.artist ? s.artist + " · " : "") + "автор ");
-  sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile, true)); box.appendChild(sub);
+  sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile, true)); ht.appendChild(sub); head.appendChild(ht); box.appendChild(head);
   const au = el("audio"); au.controls = true; au.preload = "metadata"; au.src = s.preview; au.style.width = "100%"; box.appendChild(au);
   const f = el("div", null, "facts");
   const notes = s.chart ? s.chart.t.length : 0, holds = s.chart ? s.chart.large.length : 0;

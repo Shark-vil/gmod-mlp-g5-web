@@ -21,6 +21,8 @@ Titles / artists with a word of the admins' BAN_WORDS list are hidden from the p
   GET    /api/v1/songs/{uuid}/preview.ogg   the published fragment (?work=1: the working one, author / admins)
   PUT    /api/v1/songs/{uuid}/chart     the editor's save (author, draft): notes, holds, keys, preview fragment, title
   POST   /api/v1/songs/{uuid}/trim      { start, end } cut the song out of the uploaded source (author, draft); the notes move with it
+  GET    /api/v1/songs/{uuid}/cover.jpg the published cover (?work=1: the working one), or the default picture
+  POST   /api/v1/songs/{uuid}/cover     multipart image: the author's own cover (512x512 jpg); DELETE: back to the file's own / none
   POST   /api/v1/songs/{uuid}/auto      redo the automatic chart (author, draft)
   POST   /api/v1/songs/{uuid}/build     the working copy -> the song mod: status "built", SHA256 of its files kept
   GET    /api/v1/songs/{uuid}/mod.zip   the song mod (author / admins)
@@ -75,6 +77,9 @@ _work = threading.Semaphore(1)  # one analysis at a time (librosa is heavy)
 
 KEYS = ("", "up", "down", "left", "right", "act")  # a note's key: "" = random (a new one every game), like the game's own
 TRIM_FADE = 0.4  # seconds of fade at a cut edge (no click)
+COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+COVER_MAX_MB = 5
+DEFAULT_COVER = os.path.join(os.path.dirname(__file__), "static", "song_icon.jpg")
 LIVE_COLS = {"trim_start": "REAL DEFAULT 0", "trim_end": "REAL", "src_len": "REAL", "live_title": "TEXT", "live_artist": "TEXT", "live_chart": "TEXT", "live_hashes": "TEXT", "live_wsid": "TEXT",
              "live_len": "REAL", "live_beat": "REAL", "live_version": "INTEGER DEFAULT 0", "live_at": "INTEGER", "version": "INTEGER DEFAULT 0"}
 
@@ -122,6 +127,24 @@ def _ffmpeg(args):
     r = subprocess.run(["ffmpeg", "-v", "error", "-y"] + args, capture_output=True, text=True, timeout=300)
     if r.returncode != 0:
         raise RuntimeError((r.stderr or "ffmpeg failed")[-300:])
+
+
+def to_cover(src, out, stream=None):
+    """any picture (or an audio file's attached picture) -> a 512x512 jpg; True if it worked"""
+    args = ["-i", src] + (["-map", stream] if stream else []) + ["-frames:v", "1", "-vf",
+            "scale=512:512:force_original_aspect_ratio=increase,crop=512:512", "-q:v", "3", out]
+    try:
+        _ffmpeg(args)
+        return os.path.exists(out) and os.path.getsize(out) > 0
+    except Exception:
+        if os.path.exists(out):
+            os.remove(out)
+        return False
+
+
+def cover_path(u, live=False):
+    p = os.path.join(song_dir(u), "cover_live.jpg" if live else "cover.jpg")
+    return p if os.path.exists(p) else None
 
 
 def make_preview(u, start, length):
@@ -211,7 +234,8 @@ def published(r):
             "chart": json.loads(r["live_chart"]) if r["live_chart"] else None,
             "hashes": json.loads(r["live_hashes"]) if r["live_hashes"] else None,  # the game checks the downloaded mod against these
             "wsid": r["live_wsid"], "workshop": _workshop(r["live_wsid"]),
-            "preview": f"/api/v1/songs/{r['uuid']}/preview.ogg", "page": f"/songs/{r['uuid']}"}
+            "preview": f"/api/v1/songs/{r['uuid']}/preview.ogg", "page": f"/songs/{r['uuid']}",
+            "cover": f"/api/v1/songs/{r['uuid']}/cover.jpg?v={r['live_version']}"}
 
 
 def working(r):
@@ -226,6 +250,9 @@ def working(r):
             "beats": json.loads(r["beats"]) if r["beats"] else [],
             "has_full": os.path.exists(os.path.join(song_dir(r["uuid"]), "full.ogg")),
             "trim_start": r["trim_start"] or 0, "trim_end": r["trim_end"], "src_len": r["src_len"] or r["len"],
+            "cover": f"/api/v1/songs/{r['uuid']}/cover.jpg?work=1&t={r['updated']}",
+            "cover_kind": ("own" if os.path.exists(os.path.join(song_dir(r["uuid"]), "cover_own.flag")) else
+                           ("file" if cover_path(r["uuid"]) else "default")),
             "published": published(r)}
 
 
@@ -334,6 +361,10 @@ def upload(request: Request, file: UploadFile = File(...), title: str = Form(...
             _ffmpeg(["-i", src, "-vn", "-map_metadata", "-1", "-ac", "2", "-ar", "44100", "-c:a", "libvorbis", "-q:a", "4",
                      os.path.join(song_dir(u), "source.ogg")])
             shutil.copyfile(os.path.join(song_dir(u), "source.ogg"), os.path.join(song_dir(u), "full.ogg"))
+            # the picture inside the file, if any: the song's cover until the author picks another
+            emb = os.path.join(song_dir(u), "cover_embedded.jpg")
+            if to_cover(src, emb, "0:v:0"):
+                shutil.copyfile(emb, os.path.join(song_dir(u), "cover.jpg"))
         except Exception:
             shutil.rmtree(song_dir(u), ignore_errors=True)
             raise HTTPException(400, "the file couldn't be converted")
@@ -472,6 +503,58 @@ async def trim(u: str, request: Request):
     return {"ok": True, "len": new_len, "notes": len(nt)}
 
 
+@router.get("/api/v1/songs/{u}/cover.jpg")
+def cover(u: str, request: Request, work: int = 0):
+    r = _row(u)
+    if work:
+        if not _can_edit(request, r):
+            raise HTTPException(404, "no cover")
+        path = cover_path(u)
+    else:
+        if not (_visible(r) or (r["live_version"] and _can_edit(request, r))):
+            raise HTTPException(404, "no cover")
+        path = cover_path(u, live=True)
+    return FileResponse(path or DEFAULT_COVER, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=3600" if not work else "private, no-store"})
+
+
+@router.post("/api/v1/songs/{u}/cover")
+def set_cover(u: str, request: Request, file: UploadFile = File(...)):
+    r = _row(u)
+    _author_draft(request, r)
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in COVER_EXTS:
+        raise HTTPException(400, "jpg, png or webp")
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "in" + ext)
+        data = file.file.read(int(COVER_MAX_MB * 1024 * 1024) + 1)
+        if len(data) > COVER_MAX_MB * 1024 * 1024:
+            raise HTTPException(413, f"the picture is over {COVER_MAX_MB} MB")
+        with open(src, "wb") as f:
+            f.write(data)
+        if not to_cover(src, os.path.join(song_dir(u), "cover.jpg")):
+            raise HTTPException(400, "this doesn't look like a picture")
+    open(os.path.join(song_dir(u), "cover_own.flag"), "w").close()
+    with _db() as con:
+        con.execute("UPDATE songs SET updated = ? WHERE uuid = ?", (_now(), u))
+    return {"ok": True}
+
+
+@router.delete("/api/v1/songs/{u}/cover")
+def drop_cover(u: str, request: Request):
+    """the author's own cover goes: back to the picture in the audio file, or none (the default)"""
+    r = _row(u)
+    _author_draft(request, r)
+    d = song_dir(u)
+    for name in ("cover.jpg", "cover_own.flag"):
+        if os.path.exists(os.path.join(d, name)):
+            os.remove(os.path.join(d, name))
+    if os.path.exists(os.path.join(d, "cover_embedded.jpg")):
+        shutil.copyfile(os.path.join(d, "cover_embedded.jpg"), os.path.join(d, "cover.jpg"))
+    with _db() as con:
+        con.execute("UPDATE songs SET updated = ? WHERE uuid = ?", (_now(), u))
+    return {"ok": True}
+
+
 @router.post("/api/v1/songs/{u}/auto")
 def redo_auto(u: str, request: Request):
     r = _row(u)
@@ -581,7 +664,7 @@ def mod_zip(u: str, request: Request):
             z.writestr(f"{folder}/{path}", data, compress_type=zipfile.ZIP_STORED if path.endswith(".ogg") else zipfile.ZIP_DEFLATED)
         z.writestr(f"{folder}/addon.json", addon_json(r))
         z.writestr(f"{folder}/README.txt", README.format(folder=folder))
-        with open(os.path.join(os.path.dirname(__file__), "static", "song_icon.jpg"), "rb") as f:
+        with open(cover_path(u) or DEFAULT_COVER, "rb") as f:  # the Workshop icon: the song's cover
             z.writestr(f"{folder}/icon.jpg", f.read())
     return Response(buf.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{folder}.zip"', "Cache-Control": "private, no-store"})
@@ -685,6 +768,11 @@ def admin_approve(u: str, request: Request):
     pv = os.path.join(song_dir(u), "preview.ogg")
     if os.path.exists(pv):
         shutil.copyfile(pv, os.path.join(song_dir(u), "preview_live.ogg"))
+    cv, cl = cover_path(u), os.path.join(song_dir(u), "cover_live.jpg")
+    if cv:
+        shutil.copyfile(cv, cl)
+    elif os.path.exists(cl):
+        os.remove(cl)
     ver = (r["live_version"] or 0) + 1
     with _db() as con:
         con.execute("UPDATE songs SET status = 'approved', reason = NULL, version = ?, live_version = ?, live_at = ?, live_title = title, "

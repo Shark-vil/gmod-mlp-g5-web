@@ -31,6 +31,15 @@
   .keys .btn { min-width: 36px; padding: 6px 8px; font-weight: 700; }
   .keys .btn.on { outline: 2px solid var(--text); outline-offset: -2px; }
   .keys .k-up { color: #1f6fd1; } .keys .k-down { color: #128a42; } .keys .k-left { color: #c56a00; } .keys .k-right { color: #c4246b; } .keys .k-act { color: #7a3ad6; }
+  .btn.rec { background: #e8323c; color: #fff; }
+  .btn.rec.on { animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: .55; } }
+  .recbar { display: none; align-items: center; gap: 10px; padding: 8px 12px; margin-top: 8px; background: #2a0d1a; color: #ffd6dc; border-radius: 12px; font-size: 14px; }
+  .recbar.on { display: flex; flex-wrap: wrap; }
+  .recbar .k { display: inline-block; min-width: 26px; text-align: center; padding: 2px 6px; border-radius: 6px; background: #4a1a2c; font-weight: 700; }
+  .recbar .k.lit { background: #ffd65a; color: #2a0d1a; }
+  .cover { display: flex; gap: 12px; align-items: flex-start; }
+  .cover img { width: 96px; height: 96px; border-radius: 12px; object-fit: cover; background: var(--row); flex: none; }
   kbd { background: var(--row); border-radius: 4px; padding: 0 5px; font: 12px ui-monospace, monospace; }
   .status { font-size: 13px; color: var(--muted); margin-left: auto; }
   .msg { padding: 16px; color: var(--muted); }
@@ -49,7 +58,7 @@
   .pub a { color: var(--text); }
   .pub .ok { color: #20683a; } .pub .bad { color: #b3471f; }
   @media (prefers-color-scheme: dark) { .pub .ok { color: #9fe0b5; } .pub .bad { color: #ffb08a; } }
-  .locked .tools button:not(#play):not(#test):not(#pplay), .locked #title, .locked #artist, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #keys { pointer-events: none; opacity: .45; }
+  .locked .tools button:not(#play):not(#test):not(#pplay), .locked #title, .locked #artist, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #keys, .locked #rec, .locked #coverUp, .locked #coverDrop, .locked #recReplace { pointer-events: none; opacity: .45; }
   @media (max-width: 760px) { .head, .side { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -67,8 +76,16 @@
     </div>
     <div class="card lane"><canvas id="cv" aria-label="Дорожка нот"></canvas></div>
     <input type="range" class="scroll" id="scroll" min="0" max="1000" value="0" aria-label="Прокрутка">
+    <div class="recbar" id="recbar">
+      <b>● Запись</b>
+      <span>Жмите в такт: <span class="k" data-k="up">↑</span><span class="k" data-k="down">↓</span><span class="k" data-k="left">←</span><span class="k" data-k="right">→</span>
+        (или WASD), <span class="k" data-k="act">E</span> (или Пробел); держите дольше ~0,6 с — удержание.</span>
+      <span id="recCount">0 нот</span>
+      <button class="btn" id="recStop">■ Стоп (Esc)</button>
+    </div>
     <div class="card tools" style="margin-top:8px">
       <button class="btn main" id="play" title="Пробел">▶ Играть</button>
+      <button class="btn rec" id="rec" title="Live-запись: песня играет, вы жмёте клавиши в такт">● Запись</button>
       <span class="time" id="time">0:00.0</span>
       <span class="sep"></span>
       <label>Масштаб <button class="btn" id="zout" title="−">−</button><button class="btn" id="zin" title="+">+</button></label>
@@ -100,6 +117,31 @@
           <button class="btn" id="pplay">▶ Фрагмент</button>
         </div>
         <p>На дорожке он подсвечен сверху.</p>
+      </div>
+      <div class="card">
+        <h3>Обложка</h3>
+        <div class="cover">
+          <img id="coverImg" alt="Обложка песни">
+          <div>
+            <p id="coverKind"></p>
+            <div class="tools" style="padding:4px 0">
+              <button class="btn" id="coverUp">Загрузить свою</button>
+              <button class="btn" id="coverDrop">Убрать свою</button>
+              <input type="file" id="coverFile" accept=".jpg,.jpeg,.png,.webp,image/*" hidden>
+            </div>
+            <p>jpg / png / webp до 5 МБ, обрежется в квадрат 512×512. Она же — значок мода в Мастерской.</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Live-запись</h3>
+        <p>«● Запись» — песня играет с текущего места, вы жмёте клавиши в такт, ноты ставятся сами (с направлением; держите дольше
+          ~0,6 с — удержание). Потом поправьте точечно. Всю запись отменяет один <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</p>
+        <div class="tools" style="padding:4px 0">
+          <label><input type="checkbox" id="recReplace" checked style="width:auto"> заменить ноты в записанном отрезке</label>
+          <label>Поправка, мс <input type="number" id="recOffset" value="0" step="10" style="width:80px" title="Если ноты встают позже звука — поставьте, например, −60"></label>
+        </div>
+        <p>Привязка (к удару / ½ / ¼) действует и на запись.</p>
       </div>
       <div class="card">
         <h3>Обрезка песни</h3>
@@ -165,7 +207,7 @@ async function load() {
   const ch = song.chart || { t: [], large: [] };
   const L = new Set(ch.large);
   notes = ch.t.map((t, i) => ({ t, hold: L.has(i + 1), key: (ch.keys && ch.keys[i]) || "" }));
-  showTrim();
+  showTrim(); showCover();
   $("title").value = song.title; $("artist").value = song.artist || "";
   $("pstart").value = song.preview_start || 0; $("plen").value = String(Math.round(song.preview_len || 20));
   $("facts").textContent = `${mmss(song.len)} · ${song.bpm || "?"} BPM`;
@@ -297,7 +339,7 @@ function play(from, until) {
   from = Math.max(0, Math.min(from, buf.duration - 0.05));
   src.start(0, from, until ? until - from : undefined);
   playing = { src, at: ctx.currentTime, from };
-  src.onended = () => { if (playing && playing.src === src) { window._pos = now(); playing = null; $("play").textContent = "▶ Играть"; } };
+  src.onended = () => { if (playing && playing.src === src) { window._pos = now(); playing = null; $("play").textContent = "▶ Играть"; if (rec) recStop(); } };
   $("play").textContent = "❚❚ Пауза";
   requestAnimationFrame(tick);
 }
@@ -376,6 +418,13 @@ function draw() {
       g.fillText({ up: "↑", down: "↓", left: "←", right: "→", act: "E" }[n.key] || "?", x, ny - 16);
     }
   });
+  // the notes being recorded right now (ringed, on top)
+  (window._recPreview || []).forEach(n => {
+    const x = X(n.t); if (x < -20 || x > W + 20) return;
+    if (n.hold) { g.fillStyle = C.pink; g.globalAlpha = 0.35; g.beginPath(); g.roundRect(x, ny - 9, HOLD * zoom, 18, 9); g.fill(); g.globalAlpha = 1; }
+    g.beginPath(); g.arc(x, ny, 7, 0, Math.PI * 2); g.fillStyle = n.hold ? C.pink : COL[n.key]; g.fill();
+    g.strokeStyle = "#e8323c"; g.lineWidth = 2; g.beginPath(); g.arc(x, ny, 11, 0, Math.PI * 2); g.stroke();
+  });
   showKeys();
   // playhead
   const px = X(now());
@@ -444,7 +493,7 @@ function doUndo() { if (!undo.length || locked()) return; notes = JSON.parse(und
 $("hold").onclick = toggleHold; $("del").onclick = delNote; $("undo").onclick = doUndo;
 $("play").onclick = () => playing ? stop() : play(now());
 document.addEventListener("keydown", e => {
-  if ($("ed").hidden || document.querySelector(".test") || ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  if ($("ed").hidden || document.querySelector(".test") || rec || ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
   if (e.key === " ") { e.preventDefault(); playing ? stop() : play(now()); }
   else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); delNote(); }
   else if (e.key === "h" || e.key === "H" || e.key === "р" || e.key === "Р") toggleHold();
@@ -481,6 +530,94 @@ function checkWarnings() {
   $("facts").textContent = `${mmss(song.len)} · ${song.bpm || "?"} BPM · ${np} нот, ${nh} удерж.`;
   return p;
 }
+
+// ------------------------------------------------------------------ live record: play the song, press the keys in time
+let rec = null;   // { from, notes: [ { t, key, hold } ], down: { code: { t, key } } }
+const REC_KEYS = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down", ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", Space: "act", KeyE: "act" };
+const HOLD_PRESS = 0.6;   // held longer than this: a hold note
+function recTime() { return now() + (+$("recOffset").value || 0) / 1000; }
+function recStart() {
+  if (locked() || rec) return;
+  if (ctx.state === "suspended") ctx.resume();
+  rec = { from: now(), notes: [], down: {} };
+  $("rec").classList.add("on"); $("recbar").classList.add("on"); $("recCount").textContent = "0 нот";
+  document.activeElement.blur();
+  play(now());
+}
+function recKeyDown(e) {
+  if (!rec) return;
+  if (e.key === "Escape") { e.preventDefault(); recStop(); return; }
+  const k = REC_KEYS[e.code]; if (!k) return;
+  e.preventDefault();
+  if (e.repeat || rec.down[e.code]) return;
+  rec.down[e.code] = { t: recTime(), key: k };
+  const lit = document.querySelector(`#recbar .k[data-k="${k}"]`); if (lit) lit.classList.add("lit");
+}
+function recKeyUp(e) {
+  if (!rec) return;
+  const d = rec.down[e.code]; if (!d) return;
+  delete rec.down[e.code];
+  const lit = document.querySelector(`#recbar .k[data-k="${d.key}"]`); if (lit) lit.classList.remove("lit");
+  const hold = recTime() - d.t >= HOLD_PRESS;
+  const t = snapT(d.t);
+  if (t < 0 || t > song.len) return;
+  rec.notes.push({ t, key: hold ? "" : d.key, hold });
+  $("recCount").textContent = rec.notes.length + " нот";
+  // show it at once
+  window._recPreview = rec.notes; draw();
+}
+function recStop() {
+  if (!rec) return;
+  const r = rec; rec = null;
+  Object.keys(r.down).forEach(code => recKeyUp({ code }));
+  stop();
+  $("rec").classList.remove("on"); $("recbar").classList.remove("on");
+  window._recPreview = null;
+  // in time order; a press inside a recorded hold (the game's hold lasts its 4 beats) or too close to the note
+  // before it (one press, not two) is dropped
+  const keep = [];
+  r.notes.sort((x, y) => x.t - y.t).forEach(n => {
+    const last = keep[keep.length - 1];
+    if (last && (n.t - last.t < MIN_GAP || (last.hold && n.t - last.t < HOLD + 0.05))) return;
+    keep.push(n);
+  });
+  r.notes = keep;
+  if (!r.notes.length) { draw(); return; }
+  snapshot();
+  const a = Math.min(r.from, r.notes[0].t) - 0.01, b = Math.max(now(), r.notes[r.notes.length - 1].t) + 0.01;
+  if ($("recReplace").checked) notes = notes.filter(n => n.t < a || n.t > b);
+  // the recorded ones win over old notes too close to them
+  notes = notes.filter(n => !r.notes.some(m => Math.abs(m.t - n.t) < MIN_GAP));
+  notes = notes.concat(r.notes).sort((x, y) => x.t - y.t);
+  sel = -1; mark();
+  setStatus(`записано ${r.notes.length} нот — проверьте ⛔ / ⚠ и сохраните`);
+}
+$("rec").onclick = () => rec ? recStop() : recStart();
+$("recStop").onclick = recStop;
+document.addEventListener("keydown", recKeyDown, true);
+document.addEventListener("keyup", recKeyUp, true);
+
+// ------------------------------------------------------------------ the cover
+function showCover() {
+  $("coverImg").src = song.cover + "&r=" + Date.now();
+  $("coverKind").textContent = { own: "Ваша обложка.", file: "Обложка из аудиофайла.", default: "Обложки нет — показывается заглушка." }[song.cover_kind] || "";
+  $("coverDrop").hidden = song.cover_kind !== "own";
+}
+$("coverUp").onclick = () => $("coverFile").click();
+$("coverFile").onchange = async () => {
+  const f = $("coverFile").files[0]; if (!f) return;
+  if (f.size > 5 * 1024 * 1024) { setStatus("картинка больше 5 МБ"); return; }
+  const fd = new FormData(); fd.append("file", f);
+  setStatus("загружается обложка…");
+  const r = await fetch("/api/v1/songs/" + UUID + "/cover", { method: "POST", body: fd });
+  $("coverFile").value = "";
+  if (!r.ok) { const j = await r.json().catch(() => ({})); setStatus("обложка не загрузилась: " + (j.detail || r.status)); return; }
+  song = await (await fetch("/api/v1/songs/" + UUID)).json(); showCover(); setStatus("обложка сохранена");
+};
+$("coverDrop").onclick = async () => {
+  await fetch("/api/v1/songs/" + UUID + "/cover", { method: "DELETE" });
+  song = await (await fetch("/api/v1/songs/" + UUID)).json(); showCover(); setStatus("своя обложка убрана");
+};
 
 // ------------------------------------------------------------------ trim: a piece of the uploaded song
 function showTrim() {

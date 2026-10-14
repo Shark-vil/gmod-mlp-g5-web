@@ -10,7 +10,9 @@
   .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
   .tabs .btn.on { background: var(--pink); color: #fff; }
   .filters { display: grid; grid-template-columns: 1fr 200px; gap: 8px; margin-bottom: 10px; }
-  .song { padding: 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+  .song { padding: 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; grid-template-columns: 64px 1fr; }
+  .song > :not(img) { grid-column: 2; }
+  .song img.cv { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; background: var(--row); grid-row: span 4; }
   .song:first-child { border-top: 0; }
   .song .t { font-weight: 600; overflow-wrap: anywhere; }
   .song .sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
@@ -124,7 +126,8 @@ function row(s) {
     if (await api("POST", `/api/v1/admin/users/${s.owner}/ban`, { banned: ban, reason })) load();
   });
   btn("Удалить", "danger", async () => { if (!confirm("Удалить песню «" + s.title + "» насовсем (вместе со звуком)?")) return; if (await api("DELETE", "/api/v1/songs/" + s.uuid)) load(); });
-  d.append(t, sub, au, act);
+  const img = el("img", null, "cv"); img.src = s.cover; img.alt = ""; img.loading = "lazy";
+  d.append(img, t, sub, au, act);
   return d;
 }
 

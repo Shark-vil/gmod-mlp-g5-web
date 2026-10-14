@@ -13,7 +13,8 @@
   section { margin-top: 14px; }
   section > h2 { font-size: 15px; margin: 0 0 8px 2px; }
   .stats { padding: 4px 12px 12px; }
-  .song { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .song { display: grid; grid-template-columns: 48px 1fr auto; gap: 4px 10px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .song img.cv { width: 48px; height: 48px; border-radius: 9px; object-fit: cover; background: var(--row); grid-row: span 2; }
   .song:first-child { border-top: 0; }
   .song .t { font-weight: 600; overflow-wrap: anywhere; }
   .song .sub { color: var(--muted); font-size: 13px; }
@@ -86,7 +87,8 @@ async function loadSongs() {
       del.onclick = async () => { if (!confirm("Удалить песню «" + s.title + "» вместе со звуком?")) return; await fetch("/api/v1/songs/" + s.uuid, { method: "DELETE" }); loadSongs(); };
       act.appendChild(del);
     }
-    row.appendChild(t); row.appendChild(act); row.appendChild(sub);
+    const img = document.createElement("img"); img.className = "cv"; img.alt = ""; img.src = s.cover; img.loading = "lazy";
+    row.appendChild(img); row.appendChild(t); row.appendChild(act); row.appendChild(sub);
     box.appendChild(row);
   }
   if (busy) setTimeout(loadSongs, 3000); // the notes are being placed: refresh
