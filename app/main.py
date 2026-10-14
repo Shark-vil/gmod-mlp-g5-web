@@ -91,7 +91,7 @@ MIN_TIME = {"time_skyrace": 6, "time_groundrace": 4}
 MIN_TIME_DEFAULT = 3
 # a best score can't be higher than this (the dance minigame: every note perfect at the top combo ≈ 1300)
 # rampage: 300 s at most, a hit every ~0.4 s at ×2 combo ≈ 15000
-MAX_BEST = {"best_dance": 1500, "best_rampage": 20000}
+MAX_BEST = {"best_dance": 1500, "best_rampage": 20000, "best_herding": 400}  # herding: ~1 animal / 1.5 s for 600 s
 # kept per day for the charts (GET /api/v1/history/{steamid})
 HISTORY_KEYS = ("stars", "playtime")
 HISTORY_MAX_DAYS = 120
@@ -142,8 +142,13 @@ def init():
             CREATE INDEX IF NOT EXISTS idx_stats_key ON server_stats ( key );
             CREATE INDEX IF NOT EXISTS idx_installs_ip ON installs ( ip, first_seen );
             CREATE TABLE IF NOT EXISTS stats_daily ( steamid TEXT, day TEXT, key TEXT, value REAL, PRIMARY KEY ( steamid, day, key ) );
+            CREATE TABLE IF NOT EXISTS feed ( ts INTEGER, steamid TEXT, key TEXT, value REAL, server TEXT );
+            CREATE INDEX IF NOT EXISTS idx_feed_ts ON feed ( ts );
             """
         )
+        # the player's choice to stay out of the leaderboards (the mod's stats menu; the latest report says)
+        if "hidden" not in {r["name"] for r in con.execute("PRAGMA table_info( players )")}:
+            con.execute("ALTER TABLE players ADD COLUMN hidden INTEGER DEFAULT 0")
 
 
 init()
@@ -320,6 +325,8 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
                 "ON CONFLICT ( steamid ) DO UPDATE SET nick = excluded.nick, last_seen = excluded.last_seen, last_server = excluded.last_server",
                 (sid, nick, now, now, server),
             )
+            if isinstance(p.get("hidden"), bool):
+                con.execute("UPDATE players SET hidden = ? WHERE steamid = ?", (1 if p["hidden"] else 0, sid))
             # ---- counters
             stats = dict(p.get("stats") or {}) if isinstance(p.get("stats"), dict) else {}
             pt = num(p.get("playtime"))
@@ -338,7 +345,8 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
                         clamped += 1
                         continue
                 elif fn == "MAX":
-                    if value > MAX_BEST.get(key, 1e9):
+                    cap = songs.best_cap(key)  # the dance: per song, from its notes
+                    if value > (cap if cap is not None else MAX_BEST.get(key, 1e9)):
                         flag(con, now, server, sid, key, row["value"] if row else -1, value, -1)
                         clamped += 1
                         continue
@@ -355,6 +363,11 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
                         if kept < value - 1e-6:
                             flag(con, now, server, sid, key, old, value, kept)
                             clamped += 1
+                if fn in ("MAX", "MIN"):
+                    # a personal record over all servers: into the community feed (GET /api/v1/community)
+                    best = con.execute(f"SELECT {fn}( value ) AS v FROM server_stats WHERE steamid = ? AND key = ?", (sid, key)).fetchone()["v"]
+                    if best is None or (kept > best if fn == "MAX" else kept < best):
+                        con.execute("INSERT INTO feed ( ts, steamid, key, value, server ) VALUES ( ?, ?, ?, ?, ? )", (now, sid, key, kept, server))
                 con.execute("REPLACE INTO server_stats ( server, steamid, key, value, updated ) VALUES ( ?, ?, ?, ?, ? )", (server, sid, key, kept, now))
             # history for the charts: the player's total (all servers) at the end of each day (UTC)
             for key in HISTORY_KEYS:
@@ -483,7 +496,7 @@ def leaderboard(stat: str = "stars", limit: int = 20):
     with db() as con:
         rows = con.execute(
             f"SELECT s.steamid, p.nick, {fn}( s.value ) AS value FROM server_stats s JOIN players p ON p.steamid = s.steamid "
-            f"WHERE s.key = ? GROUP BY s.steamid ORDER BY value {order} LIMIT ?",
+            f"WHERE s.key = ? AND COALESCE( p.hidden, 0 ) = 0 GROUP BY s.steamid ORDER BY value {order} LIMIT ?",
             (stat, limit),
         ).fetchall()
     return {"stat": stat, "aggregate": fn.lower(), "rows": [dict(r) for r in rows]}
@@ -496,7 +509,7 @@ def items_leaderboard(kind: str = "vanity", limit: int = 20):
     with db() as con:
         rows = con.execute(
             "SELECT u.steamid, p.nick, COUNT(*) AS value FROM unlocks u JOIN players p ON p.steamid = u.steamid "
-            "WHERE u.kind = ? GROUP BY u.steamid ORDER BY value DESC LIMIT ?",
+            "WHERE u.kind = ? AND COALESCE( p.hidden, 0 ) = 0 GROUP BY u.steamid ORDER BY value DESC LIMIT ?",
             (kind, max(1, min(limit, 100))),
         ).fetchall()
     return {"kind": kind, "rows": [dict(r) for r in rows]}
@@ -540,6 +553,37 @@ def player_history(steamid: str, days: int = 37):
             if prev:
                 series[k].insert(0, [prev["day"], prev["value"]])
     return {"steamid": steamid, "series": series}
+
+
+@app.get("/api/v1/community")
+def community(limit: int = 30):
+    """The service at a glance: players, the servers seen today (with who played there in the last 15 minutes) and a
+    feed of the latest personal records (best_* / time_* over all servers) and finds (unlocked items and spells).
+    Players who chose to stay out of the leaderboards aren't in the feed."""
+    limit = max(1, min(limit, 100))
+    now = int(time.time())
+    with db() as con:
+        total = con.execute("SELECT COUNT(*) AS n FROM players").fetchone()["n"]
+        today = con.execute("SELECT COUNT(*) AS n FROM players WHERE last_seen > ?", (now - 86400,)).fetchone()["n"]
+        recent = con.execute("SELECT COUNT(*) AS n FROM players WHERE last_seen > ?", (now - 900,)).fetchone()["n"]
+        servers = []
+        for r in con.execute("SELECT s.name, s.map, s.last_seen, i.title FROM servers s LEFT JOIN installs i ON 'i:' || i.id = s.name "
+                             "WHERE s.last_seen > ? ORDER BY s.last_seen DESC LIMIT 50", (now - 86400,)):
+            n = con.execute("SELECT COUNT(*) AS n FROM players WHERE last_server = ? AND last_seen > ?", (r["name"], now - 900)).fetchone()["n"]
+            title = r["title"] or (r["name"][4:] if r["name"].startswith("key:") else "")
+            servers.append({"title": title or "Garry's Mod", "map": r["map"] or "", "last_seen": r["last_seen"], "players": n})
+        servers.sort(key=lambda x: (-x["players"], -x["last_seen"]))
+        feed = [dict(r) | {"kind": "record"} for r in con.execute(
+            "SELECT f.ts, f.steamid, p.nick, f.key, f.value FROM feed f JOIN players p ON p.steamid = f.steamid "
+            "WHERE COALESCE( p.hidden, 0 ) = 0 ORDER BY f.ts DESC LIMIT ?", (limit,))]
+        feed += [dict(r) | {"kind": "unlock"} for r in con.execute(
+            "SELECT u.ts, u.steamid, p.nick, u.kind AS key, u.item FROM unlocks u JOIN players p ON p.steamid = u.steamid "
+            "WHERE COALESCE( p.hidden, 0 ) = 0 AND u.ts IS NOT NULL ORDER BY u.ts DESC LIMIT ?", (limit,))]
+        feed.sort(key=lambda x: -(x["ts"] or 0))
+        # the feed table stays small
+        if con.execute("SELECT COUNT(*) AS n FROM feed").fetchone()["n"] > 5000:
+            con.execute("DELETE FROM feed WHERE ts < ( SELECT ts FROM feed ORDER BY ts DESC LIMIT 1 OFFSET 2000 )")
+    return {"players": total, "players_today": today, "players_recent": recent, "servers": servers, "feed": feed[:limit], "time": now}
 
 
 @app.get("/api/v1/stats/keys")

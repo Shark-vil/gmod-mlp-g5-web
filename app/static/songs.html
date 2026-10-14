@@ -30,6 +30,10 @@
   .empty { padding: 20px; text-align: center; color: var(--muted); }
   .note { color: var(--muted); font-size: 13px; margin: 10px 2px; }
   .note a { color: var(--muted); }
+  .top10 h2 { font-size: 17px; margin: 14px 0 4px; }
+  .top10 ol { margin: 4px 0 10px; padding-left: 22px; }
+  .top10 li { padding: 3px 0; }
+  .top10 a { color: var(--text); }
 </style>
 </head>
 <body>
@@ -106,6 +110,15 @@ async function page(u) {
   box.appendChild(f);
   if (s.workshop) { const b = a("Мод в Мастерской", s.workshop, true); b.className = "btn main"; box.appendChild(b); }
   box.appendChild(el("p", "В игре: зона «Танец» → голосование в лобби. Если мода песни у вас нет, игра скачает его сама и сверит с сайтом.", "note"));
+  // the best scores on this song (from the game servers)
+  const top = el("div", null, "top10"); top.appendChild(el("h2", "Рекорды песни")); box.appendChild(top);
+  const lb = await (await fetch("/api/v1/leaderboard?limit=10&stat=" + encodeURIComponent(s.stat))).json().catch(() => null);
+  if (!lb || !lb.rows || !lb.rows.length) top.appendChild(el("div", "Пока никто не танцевал под эту песню.", "note"));
+  else {
+    const ol = el("ol");
+    lb.rows.forEach(r => { const li = el("li"); li.appendChild(a(r.nick || r.steamid, "https://steamcommunity.com/profiles/" + r.steamid, true)); li.append(" — ", el("b", String(Math.round(r.value))), " ", "очк."); ol.appendChild(li); });
+    top.appendChild(ol);
+  }
   const back = a("← Все песни", "/songs"); back.style.color = "var(--muted)"; box.appendChild(back);
 }
 

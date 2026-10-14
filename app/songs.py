@@ -251,6 +251,45 @@ def _workshop(wsid):
     return f"https://steamcommunity.com/sharedfiles/filedetails/?id={wsid}" if wsid else None
 
 
+# ---------------------------------------------------------------------------------------------- best scores per song
+# the mod keeps best_dance_<up to 12 letters / digits of the song's uuid> (sh_mg_dance.lua D.SongStatKey); a score
+# above what the song's notes can give is a cheat (main.py flags it): every note perfect at the top combo (9) plus
+# every hold's ticks (a quarter of the game's beat, 0.485 s, for every song: sh_mg_dance.lua D.TICK), with a margin. The game's own songs have fixed caps; any other key
+# (an installed song mod the site doesn't know) gets the most a song can hold.
+DANCE_TOP, DANCE_TICK, BUILTIN_CAPS, ANY_SONG_CAP = 9, 0.485 / 4, {"best_dance_game": 1500, "best_dance_wwu": 1700}, 30000
+_CAPS = {"t": 0, "caps": {}}
+
+
+def song_stat(u):
+    return "best_dance_" + re.sub(r"[^a-z0-9]", "", u.lower())[:12]
+
+
+def chart_cap(chart):
+    tick = DANCE_TICK
+    large = set(chart.get("large") or [])
+    lens = chart.get("lens") or []
+    pts = 0
+    for i, _ in enumerate(chart.get("t") or []):
+        pts += int(hold_len(lens, i) / tick) + 1 if (i + 1) in large else DANCE_TOP
+    return int(pts * 1.1) + 50
+
+
+def best_cap(key):
+    """the most a best_dance* key may hold (None: not a dance score)"""
+    if key != "best_dance" and not key.startswith("best_dance_"):
+        return None
+    if time.time() - _CAPS["t"] > 300:
+        caps = {}
+        with _db() as con:
+            for r in con.execute("SELECT uuid, live_chart FROM songs WHERE live_version > 0 AND live_chart IS NOT NULL AND status != 'deleted'"):
+                caps[song_stat(r["uuid"])] = chart_cap(json.loads(r["live_chart"]))
+        _CAPS.update(t=time.time(), caps=caps)
+    caps = {**_CAPS["caps"], **BUILTIN_CAPS}
+    if key == "best_dance":
+        return max(caps.values())
+    return caps.get(key, ANY_SONG_CAP)
+
+
 def published(r):
     """the published copy (what the public and the game servers get), or None"""
     if not r["live_version"]:
@@ -262,7 +301,8 @@ def published(r):
             "hashes": json.loads(r["live_hashes"]) if r["live_hashes"] else None,  # the game checks the downloaded mod against these
             "wsid": r["live_wsid"], "workshop": _workshop(r["live_wsid"]),
             "preview": f"/api/v1/songs/{r['uuid']}/preview.ogg", "page": f"/songs/{r['uuid']}",
-            "cover": f"/api/v1/songs/{r['uuid']}/cover.jpg?v={r['live_version']}"}
+            "cover": f"/api/v1/songs/{r['uuid']}/cover.jpg?v={r['live_version']}",
+            "stat": song_stat(r["uuid"])}  # the best scores on it: GET /api/v1/leaderboard?stat=…
 
 
 _SHA = {}  # path -> ( mtime, size, sha256 ): the files' hashes, worked out once per change
