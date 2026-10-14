@@ -85,6 +85,8 @@ def hold_len(lens, i):
     """the length of the hold at index i (0-based) of a chart"""
     v = lens[i] if lens and i < len(lens) else 0
     return v if v and v > 0 else HOLD_LEN
+HISTORY_MAX = int(os.environ.get("MLP_SONG_HISTORY", "100"))  # the working copy's earlier states kept per song (until it's published)
+HISTORY_META = ("title", "artist", "preview_start", "preview_len", "tags", "source", "swear", "lewd")
 MIN_NOTE_GAP = 0.25  # closer, the next note is already in the GOOD window (±0.2 s): an early press may take the wrong one
 FREE_NOTE_GAP = 0.05  # a "nonstandard" song (the author turned the limit off): two presses can't be closer than this
 
@@ -129,6 +131,9 @@ def init(db_factory, data_dir):
             CREATE INDEX IF NOT EXISTS idx_songs_owner ON songs ( owner );
             CREATE INDEX IF NOT EXISTS idx_songs_status ON songs ( status );
             CREATE TABLE IF NOT EXISTS meta ( key TEXT PRIMARY KEY, value TEXT );
+            CREATE TABLE IF NOT EXISTS song_history ( id INTEGER PRIMARY KEY AUTOINCREMENT, uuid TEXT, at INTEGER, why TEXT,
+                chart TEXT, meta TEXT, trim_start REAL, len REAL );
+            CREATE INDEX IF NOT EXISTS idx_song_history ON song_history ( uuid, id );
             """
         )
         have = {r["name"] for r in con.execute("PRAGMA table_info( songs )")}
@@ -706,7 +711,30 @@ def upload(request: Request, file: UploadFile = File(...), title: str = Form(...
     return {"uuid": u}
 
 
-def check_chart(times, large, length, keys=None, allow_empty=False, lens=None, free=False):
+def _state(r):
+    """the working copy's notes + "about" fields, as stored"""
+    return {"chart": r["chart"], **{k: r[k] for k in HISTORY_META}}
+
+
+def snapshot(con, r, why, new=None):
+    """keep the working copy's state (r, before a change) in the song's history; nothing when new would change nothing
+    or the last kept state is the same; the oldest go past HISTORY_MAX"""
+    old = _state(r)
+    if new is not None and all(str(old.get(k)) == str(v) for k, v in new.items() if k in old):
+        return
+    if not old["chart"]:
+        return  # nothing to go back to yet
+    meta = json.dumps({k: old[k] for k in HISTORY_META}, ensure_ascii=False)
+    last = con.execute("SELECT chart, meta, trim_start FROM song_history WHERE uuid = ? ORDER BY id DESC LIMIT 1", (r["uuid"],)).fetchone()
+    if last and last["chart"] == old["chart"] and last["meta"] == meta and (last["trim_start"] or 0) == (r["trim_start"] or 0):
+        return
+    con.execute("INSERT INTO song_history ( uuid, at, why, chart, meta, trim_start, len ) VALUES ( ?, ?, ?, ?, ?, ?, ? )",
+                (r["uuid"], _now(), why, old["chart"], meta, r["trim_start"] or 0, r["len"]))
+    con.execute("DELETE FROM song_history WHERE uuid = ? AND id NOT IN ( SELECT id FROM song_history WHERE uuid = ? ORDER BY id DESC LIMIT ? )",
+                (r["uuid"], r["uuid"], HISTORY_MAX))
+
+
+def check_chart(times, large, length, keys=None, allow_empty=False, lens=None, free=False, lenient=False):
     """sorted notes + their holds + their keys ("" = random) + the holds' lengths (0 for a tap), or HTTPException
     with what's wrong (a draft may be saved with no notes; a mod needs at least one)"""
     if allow_empty and not times:
@@ -727,6 +755,10 @@ def check_chart(times, large, length, keys=None, allow_empty=False, lens=None, f
     lens = [lens[i] for i in order] if lens else []
     times = [times[i] for i in order]
     lens = [(min(HOLD_MAX, max(HOLD_MIN, hold_len(lens, i))) if (i + 1) in large else 0) for i in range(len(times))]
+    if lenient:  # a draft's save: anything goes (the ⛔ rules are checked when the mod is built)
+        lens = [(min(HOLD_MAX, max(HOLD_MIN, hold_len(lens, i))) if (i + 1) in large else 0) for i in range(len(times))]
+        keys = [("" if (i + 1) in large else k) for i, k in enumerate(keys)]
+        return times, large, (keys if any(keys) else []), (lens if large else [])
     for i, t in enumerate(times):
         if t < 0 or t > length:
             raise HTTPException(400, f"note {i + 1} is outside the song")
@@ -761,16 +793,23 @@ async def save_chart(u: str, request: Request):
     except Exception:
         raise HTTPException(400, "bad chart")
     length = r["len"] or 0
-    times, large, keys, lens = check_chart(times, large, length, keys, allow_empty=True, lens=lens, free=free)
-    ps = round(float(body.get("preview_start", r["preview_start"] or 0)), 2)
-    pl = round(float(body.get("preview_len", r["preview_len"] or PREVIEW_LEN)), 2)
-    if not 10 <= pl <= 30 or ps < 0 or ps + pl > length + 0.01:
-        raise HTTPException(400, "the preview must be 10-30 s inside the song")
+    times, large, keys, lens = check_chart(times, large, length, keys, allow_empty=True, lens=lens, free=free, lenient=True)
+    try:
+        ps = round(float(body.get("preview_start", r["preview_start"] or 0)), 2)
+        pl = round(float(body.get("preview_len", r["preview_len"] or PREVIEW_LEN)), 2)
+    except (TypeError, ValueError):
+        ps, pl = r["preview_start"] or 0, r["preview_len"] or PREVIEW_LEN
+    pl = min(30.0, max(10.0, pl), max(1.0, length))   # a draft's save never fails: the preview is put inside the song
+    ps = min(max(0.0, ps), max(0.0, length - pl))
     title = str(body.get("title", r["title"]))[:80].strip() or r["title"]
     artist = str(body.get("artist", r["artist"] or ""))[:80].strip()
     tags = clean_tags(body["tags"]) if "tags" in body else _json(r["tags"], [])
     genres = clean_genres(body["genres"]) if "genres" in body else _json(r["genres"], [])
-    source = clean_source(body["source"]) if "source" in body else (r["source"] or "")
+    warnings = []
+    try:
+        source = clean_source(body["source"]) if "source" in body else (r["source"] or "")
+    except HTTPException:
+        source, warnings = r["source"] or "", ["source"]  # a bad link doesn't stop the save: the old one stays
     swear = max(0, min(2, int(body.get("swear", r["swear"] or 0) or 0)))
     lewd = 1 if body.get("lewd", r["lewd"]) else 0
     chart = {"t": times, "large": sorted(large)}
@@ -781,15 +820,20 @@ async def save_chart(u: str, request: Request):
     if free:
         chart["free"] = True
     if (ps, pl) != (r["preview_start"], r["preview_len"]) and os.path.exists(os.path.join(song_dir(u), "full.ogg")):
-        make_preview(u, ps, pl)
+        try:
+            make_preview(u, ps, pl)
+        except Exception:
+            pass  # the fragment is made again on the next save / the build
     with _db() as con:
+        snapshot(con, r, "save", {"chart": json.dumps(chart), "title": title, "artist": artist, "preview_start": ps, "preview_len": pl,
+                                  "tags": json.dumps(tags, ensure_ascii=False), "source": source, "swear": swear, "lewd": lewd})
         con.execute("UPDATE songs SET chart = ?, preview_start = ?, preview_len = ?, title = ?, artist = ?, tags = ?, genres = ?, source = ?, "
                     "swear = ?, lewd = ?, updated = ? WHERE uuid = ?",
                     (json.dumps(chart), ps, pl, title, artist, json.dumps(tags, ensure_ascii=False), json.dumps(genres), source, swear, lewd, _now(), u))
         # a higher age mark is at once on the published copy too (a lower one waits for the review)
         con.execute("UPDATE songs SET live_swear = MAX( COALESCE( live_swear, 0 ), ? ), live_lewd = MAX( COALESCE( live_lewd, 0 ), ? ) "
                     "WHERE uuid = ? AND live_version > 0", (swear, lewd, u))
-    return {"ok": True, "chart": chart, "tags": tags, "genres": genres, "source": source}
+    return {"ok": True, "chart": chart, "tags": tags, "genres": genres, "source": source, "warnings": warnings}
 
 
 @router.put("/api/v1/songs/{u}/genres")
@@ -870,6 +914,7 @@ async def trim(u: str, request: Request):
     pl = min(r["preview_len"] or PREVIEW_LEN, new_len)
     make_preview(u, ps, pl)
     with _db() as con:
+        snapshot(con, r, "trim")
         con.execute("UPDATE songs SET len = ?, trim_start = ?, trim_end = ?, chart = ?, beats = ?, preview_start = ?, preview_len = ?, "
                     "updated = ? WHERE uuid = ?", (new_len, 0 if whole else start, None if whole else end, json.dumps(chart),
                                                    json.dumps(beats), round(ps, 2), round(pl, 2), _now(), u))
@@ -935,6 +980,7 @@ def redo_auto(u: str, request: Request):
     if not os.path.exists(os.path.join(song_dir(u), "full.ogg")):
         raise HTTPException(409, "no full track")
     with _db() as con:
+        snapshot(con, r, "auto")
         con.execute("UPDATE songs SET analysis = 'queued', updated = ? WHERE uuid = ?", (_now(), u))
     start_analysis(u)
     return {"ok": True}
@@ -948,6 +994,60 @@ def revise(u: str, request: Request):
         raise HTTPException(403, "only an approved / rejected song of the author")
     with _db() as con:
         con.execute("UPDATE songs SET status = 'draft', hashes = NULL, reason = NULL, updated = ? WHERE uuid = ?", (_now(), u))
+    return {"ok": True}
+
+
+@router.get("/api/v1/songs/{u}/history")
+def history(u: str, request: Request):
+    """the working copy's earlier states, newest first (kept until the song is published)"""
+    r = _row(u)
+    if not _can_edit(request, r):
+        raise HTTPException(403, "only the author")
+    with _db() as con:
+        rows = con.execute("SELECT * FROM song_history WHERE uuid = ? ORDER BY id DESC", (u,)).fetchall()
+    out = []
+    for h in rows:
+        c, m = _json(h["chart"], {}) or {}, _json(h["meta"], {})
+        out.append({"id": h["id"], "at": h["at"], "why": h["why"], "notes": len(c.get("t") or []), "holds": len(c.get("large") or []),
+                    "title": m.get("title"), "nonstandard": nonstandard(c), "trim_start": h["trim_start"] or 0})
+    return {"history": out, "max": HISTORY_MAX}
+
+
+@router.post("/api/v1/songs/{u}/history/{hid}/restore")
+def history_restore(u: str, hid: int, request: Request):
+    """the working copy back to a kept state (the current one is kept first); notes move with a trim made since"""
+    r = _row(u)
+    _author_draft(request, r)
+    length = r["len"] or 0
+    with _db() as con:
+        h = con.execute("SELECT * FROM song_history WHERE uuid = ? AND id = ?", (u, hid)).fetchone()
+        if not h:
+            raise HTTPException(404, "no such version")
+        c, m = _json(h["chart"], {}) or {}, _json(h["meta"], {})
+        shift = (h["trim_start"] or 0) - (r["trim_start"] or 0)   # the audio's start moved by a trim since then
+        if c.get("t") and abs(shift) > 0.001:
+            keep = [i for i, t in enumerate(c["t"]) if 0 <= t + shift <= length]
+            old_large = set(c.get("large") or [])
+            idx = {o: n + 1 for n, o in enumerate(keep)}
+            nc = {"t": [round(c["t"][i] + shift, 3) for i in keep], "large": sorted(idx[i] for i in keep if (i + 1) in old_large)}
+            for k in ("keys", "lens"):
+                if c.get(k):
+                    nc[k] = [c[k][i] for i in keep]
+            if c.get("free"):
+                nc["free"] = True
+            c = nc
+        snapshot(con, r, "restore")
+        pl = m.get("preview_len") or r["preview_len"] or PREVIEW_LEN
+        ps = min(max(0.0, (m.get("preview_start") or 0) + shift), max(0.0, length - pl))
+        con.execute("UPDATE songs SET chart = ?, title = ?, artist = ?, preview_start = ?, preview_len = ?, tags = ?, source = ?, swear = ?, lewd = ?, "
+                    "updated = ? WHERE uuid = ?",
+                    (json.dumps(c) if c else None, m.get("title") or r["title"], m.get("artist") or "", round(ps, 2), pl,
+                     m.get("tags") or r["tags"], m.get("source") or "", m.get("swear") or 0, m.get("lewd") or 0, _now(), u))
+    if os.path.exists(os.path.join(song_dir(u), "full.ogg")):
+        try:
+            make_preview(u, ps, pl)
+        except Exception:
+            pass
     return {"ok": True}
 
 
@@ -1199,6 +1299,7 @@ def approve(u, by):
                     "live_artist = artist, live_chart = chart, live_hashes = hashes, live_wsid = wsid, live_len = len, live_beat = beat, "
                     "live_tags = tags, live_source = source, live_swear = swear, live_lewd = lewd, approved_by = ?, "
                     "updated = ? WHERE uuid = ?", (ver, ver, _now(), by, _now(), u))
+        con.execute("DELETE FROM song_history WHERE uuid = ?", (u,))  # published: the rollback history goes
         if by != "auto":
             add_trust(con, r["owner"], TRUST_APPROVE)
     return {"ok": True, "version": ver}

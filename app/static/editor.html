@@ -126,6 +126,15 @@
   .marks select { width: auto; padding: 4px 8px; }
   .marks a { font-size: 13px; color: var(--muted); }
   .agebadge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--row); color: var(--muted); }
+  .hist { max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+  .hrow { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 6px; border-radius: 8px; background: var(--row); }
+  .hrow .hwhen { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .hrow .hinfo { flex: 1; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hrow button { padding: 2px 10px; font-size: 12px; }
+  .bakbar { padding: 8px 10px; border-radius: 8px; background: #fff1c2; color: #6a4a00; font-size: 13px; margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .bakbar[hidden] { display: none; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bakbar { background: #4a3a10; color: #ffe7a6; } }
+  :root[data-theme="dark"] .bakbar { background: #4a3a10; color: #ffe7a6; }
   .nsbadge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #d8e6ff; color: #1d3f86; cursor: help; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .nsbadge { background: #1f3358; color: #c7dbff; } }
   :root[data-theme="dark"] .nsbadge { background: #1f3358; color: #c7dbff; }
@@ -227,6 +236,12 @@
           <label class="chk" title="Снимает запрет ⛔ на ноты ближе 0,25 с (остаётся минимум 0,05 с). Песня с такими нотами на сайте и в игре помечается «Нестандартная»."><input type="checkbox" id="free"> Разрешить ноты ближе 0,25 с</label>
           <span class="nsbadge" id="nsBadge" hidden title="Нестандартная песня: в ней есть ноты ближе 0,25 с друг к другу. Автор сам снял ограничение. Такие ноты идут почти подряд: их легко перепутать, а нажатие чуть раньше времени засчитается предыдущей ноте (другая клавиша — промах). Играть труднее обычного.">Нестандартная</span>
         </div></div>
+      </div>
+      <div class="card" id="histCard">
+        <h3>История версий</h3>
+        <div class="bakbar" id="bakbar" hidden></div>
+        <div class="hist" id="hist"></div>
+        <div class="ahint" id="histHint">Каждое сохранение, обрезка и авторасстановка оставляют прежнюю версию здесь. История хранится, пока песня — черновик или снова в правке, и удаляется после публикации. Перед откатом текущая версия тоже попадает в историю.</div>
       </div>
       <div class="card">
         <h3>Live-запись</h3>
@@ -394,6 +409,7 @@ async function load() {
   $("facts").textContent = `${mmss(song.len)} · ${song.bpm || "?"} BPM`;
   $("out").hidden = true; $("ed").hidden = false;
   resize(); checkWarnings(); setStatus(song.status === "draft" ? "сохранено" : "только просмотр");
+  checkBackup(); loadHistory();
   $("ed").classList.toggle("locked", song.status !== "draft");
   publishPanel();
 }
@@ -1292,17 +1308,78 @@ async function refreshMeta(redraw = true) {
   if (redraw && was !== JSON.stringify([song.meta_only, song.meta_changes])) publishPanel();
 }
 async function save() {
-  if (problems().some(p => p.hard)) { setStatus("исправьте отмеченные ⛔ ноты"); return false; }
-  setStatus("сохраняется…");
+  setStatus("сохраняется…"); backup();
   const body = { t: notes.map(n => n.t), large: notes.map((n, i) => n.hold ? i + 1 : 0).filter(Boolean), keys: notes.map(n => n.hold ? "" : (n.key || "")), lens: notes.map(n => n.hold ? hl(n) : 0),
     preview_start: +$("pstart").value, preview_len: +$("plen").value, title: $("title").value, artist: $("artist").value,
     tags, genres: genresSel, source: $("source").value.trim(), swear: $("swear").checked ? +$("swearMuch").value : 0, lewd: $("lewd").checked ? 1 : 0, free: $("free").checked };
-  const r = await fetch("/api/v1/songs/" + UUID + "/chart", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (r.ok) { dirty = false; setStatus("сохранено"); refreshMeta(); return true; }
+  let r;
+  try { r = await fetch("/api/v1/songs/" + UUID + "/chart", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  catch (e) { setStatus("не сохранилось: нет связи с сайтом — работа сохранена в этом браузере"); return false; }
+  if (r.ok) {
+    const j = await r.json().catch(() => ({}));
+    dirty = false; dropBackup(); refreshMeta(); loadHistory();
+    const hard = problems().some(p => p.hard), badSrc = (j.warnings || []).includes("source");
+    setStatus(badSrc ? "сохранено, но источник не принят — нужна ссылка http:// или https://"
+      : hard ? "сохранено · есть ⛔ — исправьте до сборки мода" : "сохранено");
+    return true;
+  }
   const j = await r.json().catch(() => ({}));
   const why = { "the source must be an http(s) link": tx("источник — нужна ссылка http:// или https://") }[j.detail];
-  setStatus("не сохранилось: " + (why || j.detail || r.status));
+  setStatus("не сохранилось: " + (why || j.detail || r.status) + " — работа сохранена в этом браузере");
   return false;
+}
+
+// ------------------------------------------------------------------ the safety nets: a copy in this browser, the server's history
+const BAK = "mlp_bak_" + UUID;
+function curState() {
+  return { notes: notes.map(n => ({ ...n })), title: $("title").value, artist: $("artist").value, pstart: $("pstart").value, plen: $("plen").value, free: $("free").checked };
+}
+function backup() { try { localStorage.setItem(BAK, JSON.stringify({ at: Date.now(), ...curState() })); } catch (e) {} }
+function dropBackup() { try { localStorage.removeItem(BAK); } catch (e) {} }
+setInterval(() => { if (dirty && song && song.status === "draft") backup(); }, 3000);
+function checkBackup() {
+  let b = null;
+  try { b = JSON.parse(localStorage.getItem(BAK) || "null"); } catch (e) {}
+  const bar = $("bakbar"); bar.hidden = true; bar.textContent = "";
+  if (!b || !Array.isArray(b.notes) || song.status !== "draft") return;
+  const same = JSON.stringify(b.notes.map(n => [n.t, !!n.hold, n.key || ""])) === JSON.stringify(notes.map(n => [n.t, !!n.hold, n.key || ""]));
+  if (same && b.title === $("title").value) { dropBackup(); return; }
+  bar.append(el("span", tx("В этом браузере есть несохранённая работа от {0} ({1} нот).", new Date(b.at).toLocaleString(), b.notes.length)));
+  const yes = el("button", "Восстановить", "btn main"), no = el("button", "Удалить её", "btn");
+  yes.onclick = () => {
+    snapshot();
+    notes = b.notes; $("title").value = b.title || $("title").value; $("artist").value = b.artist || "";
+    if (b.pstart != null) $("pstart").value = b.pstart; if (b.plen != null) $("plen").value = b.plen;
+    $("free").checked = !!b.free; MIN_GAP = b.free ? FREE_GAP : STD_GAP;
+    bar.hidden = true; mark(); setStatus("восстановлено из браузера — сохраните");
+  };
+  no.onclick = () => { if (confirm(tx("Удалить несохранённую работу из браузера? Вернуть её будет нельзя."))) { dropBackup(); bar.hidden = true; } };
+  bar.append(yes, no); bar.hidden = false;
+}
+const WHY = { save: "сохранение", trim: "до обрезки", auto: "до авторасстановки", restore: "до отката" };
+async function loadHistory() {
+  const box = $("hist");
+  let h;
+  try { h = await (await fetch("/api/v1/songs/" + UUID + "/history")).json(); } catch (e) { return; }
+  box.textContent = "";
+  if (!h.history || !h.history.length) { box.appendChild(el("div", "пока пусто", "ahint")); return; }
+  h.history.forEach(v => {
+    const row = el("div", null, "hrow");
+    row.append(el("span", new Date(v.at * 1000).toLocaleString(), "hwhen"),
+      el("span", tx(WHY[v.why] || v.why) + " · " + tx("{0} нот", v.notes) + (v.nonstandard ? " · " + tx("Нестандартная") : ""), "hinfo"));
+    const b = el("button", "Вернуть", "btn");
+    b.disabled = song.status !== "draft";
+    b.title = song.status !== "draft" ? tx("Откат — только в черновике (вернитесь к правке)") : tx("Сделать эту версию текущей");
+    b.onclick = () => restoreVersion(v);
+    row.appendChild(b); box.appendChild(row);
+  });
+}
+async function restoreVersion(v) {
+  if (!confirm(tx("Вернуть версию от {0}? Текущая версия сохранится в истории.", new Date(v.at * 1000).toLocaleString()))) return;
+  if (dirty && !(await save())) return;
+  const r = await fetch("/api/v1/songs/" + UUID + "/history/" + v.id + "/restore", { method: "POST" });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); setStatus("не получилось: " + (j.detail || r.status)); return; }
+  dirty = false; location.reload();
 }
 $("save").onclick = save;
 $("clear").onclick = () => {
