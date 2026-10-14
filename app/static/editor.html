@@ -126,6 +126,9 @@
   .marks select { width: auto; padding: 4px 8px; }
   .marks a { font-size: 13px; color: var(--muted); }
   .agebadge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--row); color: var(--muted); }
+  .nsbadge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #d8e6ff; color: #1d3f86; cursor: help; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .nsbadge { background: #1f3358; color: #c7dbff; } }
+  :root[data-theme="dark"] .nsbadge { background: #1f3358; color: #c7dbff; }
   .agebadge.a16 { background: #fde1c8; color: #7a3a00; } .agebadge.a18 { background: #f7c9cf; color: #7d1020; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .agebadge.a16 { background: #5a3414; color: #ffd6ad; } :root:not([data-theme="light"]) .agebadge.a18 { background: #5c1a24; color: #ffc4cc; } }
   :root[data-theme="dark"] .agebadge.a16 { background: #5a3414; color: #ffd6ad; } :root[data-theme="dark"] .agebadge.a18 { background: #5c1a24; color: #ffc4cc; }
@@ -219,6 +222,10 @@
           <label class="chk"><input type="checkbox" id="lewd"> Эротический подтекст</label>
           <span class="agebadge" id="ageBadge"></span>
           <a href="/rules" target="_blank">Правила песен</a>
+        </div></div>
+        <div class="arow"><span class="alab">Ноты</span><div class="marks">
+          <label class="chk" title="Снимает запрет ⛔ на ноты ближе 0,25 с (остаётся минимум 0,05 с). Песня с такими нотами на сайте и в игре помечается «Нестандартная»."><input type="checkbox" id="free"> Разрешить ноты ближе 0,25 с</label>
+          <span class="nsbadge" id="nsBadge" hidden title="Нестандартная песня: в ней есть ноты ближе 0,25 с друг к другу. Автор сам снял ограничение. Такие ноты идут почти подряд: их легко перепутать, а нажатие чуть раньше времени засчитается предыдущей ноте (другая клавиша — промах). Играть труднее обычного.">Нестандартная</span>
         </div></div>
       </div>
       <div class="card">
@@ -334,7 +341,8 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const UUID = location.pathname.split("/").pop();
-const HOLD = 1.94, MIN_GAP = 0.25, GOOD_GAP = 0.43;      // the game: a hold's length (when it has none of its own), the hard minimum, the game charts' gap
+const HOLD = 1.94, STD_GAP = 0.25, FREE_GAP = 0.05, GOOD_GAP = 0.43;  // the game: a hold's length (when it has none of its own), the standard minimum, the minimum with the limit off ("nonstandard"), the game charts' gap
+let MIN_GAP = STD_GAP;  // FREE_GAP while "allow notes closer than 0.25 s" is on
 const HOLD_MIN = 0.5, HOLD_MAX = 8;                       // a hold's own length (the chart's "lens"; songs.py checks the same)
 const clampHold = v => Math.max(HOLD_MIN, Math.min(HOLD_MAX, Math.round(v * 1000) / 1000));
 const newHold = () => clampHold(song && song.beat ? song.beat * 4 : HOLD);   // a new hold: four of the song's beats
@@ -1021,6 +1029,7 @@ function problems() {
   for (let i = 1; i < notes.length; i++) {
     const d = notes[i].t - notes[i - 1].t;
     if (d < MIN_GAP) out.push({ i, hard: true, text: `ноты ${i} и ${i + 1} ближе ${MIN_GAP} с (${mmss(notes[i].t, true)}) — так нельзя` });
+    else if (d < STD_GAP) out.push({ i, hard: false, text: `ноты ${i} и ${i + 1} ближе ${STD_GAP} с (${mmss(notes[i].t, true)}) — песня станет «Нестандартной»` });
     else if (d < GOOD_GAP) out.push({ i, hard: false, text: `ноты ${i} и ${i + 1} очень близко (${mmss(notes[i].t, true)}) — трудно попасть` });
     if (notes[i - 1].hold && d < hl(notes[i - 1]) + 0.05) out.push({ i, hard: true, text: `нота ${i + 1} внутри удержания (${mmss(notes[i].t, true)})` });
   }
@@ -1028,6 +1037,7 @@ function problems() {
 }
 function checkWarnings() {
   const p = problems(), box = $("warns");
+  $("nsBadge").hidden = !notes.some((n, i) => i && n.t - notes[i - 1].t < STD_GAP - 1e-6);
   box.textContent = "";
   p.slice(0, 6).forEach(w => { const d = document.createElement("div"); d.className = "warn"; d.append(el("span", w.hard ? "⛔ " : "⚠ "), document.createTextNode(w.text)); d.style.cursor = "pointer";   // the text alone: it's translated
     d.onclick = () => { pick(w.i); window._pos = notes[w.i].t; setView(notes[w.i].t - cv.clientWidth / zoom / 3); draw(); }; box.appendChild(d); });
@@ -1111,6 +1121,7 @@ async function loadAbout() {
   tags = (song.tags || []).slice(); genresSel = (song.genres || []).filter(id => GENRES.some(g => g.id === id));
   $("source").value = song.source || "";
   $("swear").checked = song.swear > 0; $("swearMuch").value = String(song.swear > 1 ? 2 : 1); $("lewd").checked = !!song.lewd;
+  $("free").checked = !!(song.chart && song.chart.free); MIN_GAP = $("free").checked ? FREE_GAP : STD_GAP;
   renderGenres(); renderTags(); showAge();
 }
 function renderGenres() {
@@ -1209,6 +1220,7 @@ function showAge() {
   b.title = a ? tx("Песни {0}+ на сайте и в игре скрыты, пока игрок сам не включит их показ", a) : "";
 }
 ["swear", "swearMuch", "lewd"].forEach(id => $(id).addEventListener("change", () => { showAge(); dirty = true; setStatus("есть несохранённые изменения"); $(id).blur(); }));
+$("free").addEventListener("change", () => { MIN_GAP = $("free").checked ? FREE_GAP : STD_GAP; dirty = true; setStatus("есть несохранённые изменения"); checkWarnings(); $("free").blur(); });
 $("source").addEventListener("input", () => { dirty = true; setStatus("есть несохранённые изменения"); });
 
 // ------------------------------------------------------------------ the cover
@@ -1284,7 +1296,7 @@ async function save() {
   setStatus("сохраняется…");
   const body = { t: notes.map(n => n.t), large: notes.map((n, i) => n.hold ? i + 1 : 0).filter(Boolean), keys: notes.map(n => n.hold ? "" : (n.key || "")), lens: notes.map(n => n.hold ? hl(n) : 0),
     preview_start: +$("pstart").value, preview_len: +$("plen").value, title: $("title").value, artist: $("artist").value,
-    tags, genres: genresSel, source: $("source").value.trim(), swear: $("swear").checked ? +$("swearMuch").value : 0, lewd: $("lewd").checked ? 1 : 0 };
+    tags, genres: genresSel, source: $("source").value.trim(), swear: $("swear").checked ? +$("swearMuch").value : 0, lewd: $("lewd").checked ? 1 : 0, free: $("free").checked };
   const r = await fetch("/api/v1/songs/" + UUID + "/chart", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (r.ok) { dirty = false; setStatus("сохранено"); refreshMeta(); return true; }
   const j = await r.json().catch(() => ({}));

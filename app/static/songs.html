@@ -18,6 +18,9 @@
   .gn { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #e9dcff; color: #4a2c8a; }
   .age { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #fde1c8; color: #7a3a00; }
   .age.a18 { background: #f7c9cf; color: #7d1020; }
+  .ns { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #d8e6ff; color: #1d3f86; cursor: help; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ns { background: #1f3358; color: #c7dbff; } }
+  :root[data-theme="dark"] .ns { background: #1f3358; color: #c7dbff; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .gn { background: #3b2e63; color: #d9ccff; } :root:not([data-theme="light"]) .age { background: #5a3414; color: #ffd6ad; } :root:not([data-theme="light"]) .age.a18 { background: #5c1a24; color: #ffc4cc; } }
   :root[data-theme="dark"] .gn { background: #3b2e63; color: #d9ccff; } :root[data-theme="dark"] .age { background: #5a3414; color: #ffd6ad; } :root[data-theme="dark"] .age.a18 { background: #5c1a24; color: #ffc4cc; }
   .src { font-size: 14px; margin: 6px 0; overflow-wrap: anywhere; }
@@ -78,10 +81,12 @@ const one = location.pathname.match(/^\/songs\/([0-9a-f-]{36})$/);
 
 let GENRES = [];
 const gname = id => { const g = GENRES.find(x => x.id === id); return g ? (mlpLang() === "en" ? g.en || g.ru : g.ru) : null; };
+const NS_TIP = "Нестандартная песня: в ней есть ноты ближе 0,25 с друг к другу. Автор сам снял ограничение. Такие ноты идут почти подряд: их легко перепутать, а нажатие чуть раньше времени засчитается предыдущей ноте (другая клавиша — промах). Играть труднее обычного.";
 function ageBadge(age) { const b = el("span", age + "+", "age" + (age >= 18 ? " a18" : "")); b.title = tx(age >= 18 ? "18+: много мата или мат и эротический подтекст" : "16+: мат или эротический подтекст"); return b; }
 function badges(s, clickable) {
   const box = el("div", null, "badges");
   if (s.age) box.appendChild(ageBadge(s.age));
+  if (s.nonstandard) { const b = el("span", tx("Нестандартная"), "ns"); b.title = tx(NS_TIP); box.appendChild(b); }
   (s.genres || []).map(gname).filter(Boolean).forEach(n => box.appendChild(el("span", n, "gn")));
   (s.tags || []).forEach(t => {
     const b = el(clickable ? "button" : "a", "#" + t, "tg");
@@ -97,7 +102,7 @@ function songRow(s) {
   [s.artist, mmss(s.len)].filter(Boolean).forEach(x => sub.append(x, " · ")); sub.append("автор", " ");
   sub.appendChild(mlpAuthor(s));
   const left = el("div"); left.append(t, sub);
-  if (s.age || (s.genres || []).length || (s.tags || []).length) left.appendChild(badges(s, true));
+  if (s.age || s.nonstandard || (s.genres || []).length || (s.tags || []).length) left.appendChild(badges(s, true));
   const ws = el("div", null, "ws");
   if (s.workshop) { const b = a("Мод в Мастерской", s.workshop, true); b.className = "btn"; ws.appendChild(b); }
   const au = el("audio"); au.controls = true; au.preload = "none"; au.src = s.preview;
@@ -139,7 +144,7 @@ async function page(u) {
   const ht = el("div"); ht.appendChild(el("h1", s.title));
   const sub = el("div", null, "note"); if (s.artist) sub.append(s.artist, " · "); sub.append("автор", " ");
   sub.appendChild(mlpAuthor(s)); ht.appendChild(sub);
-  if (s.age || (s.genres || []).length || (s.tags || []).length) ht.appendChild(badges(s, false));
+  if (s.age || s.nonstandard || (s.genres || []).length || (s.tags || []).length) ht.appendChild(badges(s, false));
   head.appendChild(ht); box.appendChild(head);
   if (s.source) {
     let host = s.source; try { host = new URL(s.source).hostname; } catch (e) {}

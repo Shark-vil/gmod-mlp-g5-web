@@ -85,7 +85,14 @@ def hold_len(lens, i):
     """the length of the hold at index i (0-based) of a chart"""
     v = lens[i] if lens and i < len(lens) else 0
     return v if v and v > 0 else HOLD_LEN
-MIN_NOTE_GAP = 0.25  # closer, one press would count for two notes (the GOOD window is ±0.2 s)
+MIN_NOTE_GAP = 0.25  # closer, the next note is already in the GOOD window (±0.2 s): an early press may take the wrong one
+FREE_NOTE_GAP = 0.05  # a "nonstandard" song (the author turned the limit off): two presses can't be closer than this
+
+
+def nonstandard(chart):
+    """a chart with notes closer than MIN_NOTE_GAP: the site and the game mark such a song as nonstandard"""
+    t = (chart or {}).get("t") or []
+    return any(b - a < MIN_NOTE_GAP - 1e-6 for a, b in zip(t, t[1:]))
 
 router = APIRouter()
 _db = None
@@ -449,6 +456,7 @@ def published(r, words=None):
             "swear": swear, "lewd": lewd, "age": age_of(swear, lewd),
             "len": r["live_len"], "beat": r["live_beat"], "version": r["live_version"], "approved_at": r["live_at"],
             "chart": json.loads(r["live_chart"]) if r["live_chart"] else None,
+            "nonstandard": nonstandard(_json(r["live_chart"], None)),
             "hashes": json.loads(r["live_hashes"]) if r["live_hashes"] else None,  # the game checks the downloaded mod against these
             "wsid": r["live_wsid"], "workshop": _workshop(r["live_wsid"]),
             "preview": f"/api/v1/songs/{r['uuid']}/preview.ogg", "page": f"/songs/{r['uuid']}",
@@ -505,7 +513,7 @@ def working(r):
             "len": r["len"], "bpm": r["bpm"], "beat": r["beat"], "preview_start": r["preview_start"], "preview_len": r["preview_len"],
             "wsid": r["wsid"], "workshop": _workshop(r["wsid"]), "analysis": r["analysis"], "analysis_error": r["analysis_error"],
             "created": r["created"], "updated": r["updated"], "reason": r["reason"], "version": r["version"] or 0,
-            "chart": json.loads(r["chart"]) if r["chart"] else None,
+            "chart": json.loads(r["chart"]) if r["chart"] else None, "nonstandard": nonstandard(_json(r["chart"], None)),
             "hashes": json.loads(r["hashes"]) if r["hashes"] else None,
             "beats": json.loads(r["beats"]) if r["beats"] else [],
             "has_full": os.path.exists(os.path.join(song_dir(r["uuid"]), "full.ogg")),
@@ -594,7 +602,7 @@ def songs_for_game():
                     "author_nick": p["owner_nick"] if not p["owner_nick_hidden"] else barcode(p["owner"]),
                     "wsid": p["wsid"], "len": p["len"], "beat": p["beat"], "version": p["version"], "file": f"sound/mlp_g5/songs/{p['uuid']}.ogg",
                     "charts": [p["chart"]], "hashes": p["hashes"], "site": f"{SITE}/songs/{p['uuid']}" if SITE else p["page"],
-                    "age": p["age"], "tags": p["tags"], "genres": [names[g] for g in p["genres"] if g in names]})
+                    "age": p["age"], "nonstandard": p["nonstandard"], "tags": p["tags"], "genres": [names[g] for g in p["genres"] if g in names]})
     return {"songs": out}
 
 
@@ -698,7 +706,7 @@ def upload(request: Request, file: UploadFile = File(...), title: str = Form(...
     return {"uuid": u}
 
 
-def check_chart(times, large, length, keys=None, allow_empty=False, lens=None):
+def check_chart(times, large, length, keys=None, allow_empty=False, lens=None, free=False):
     """sorted notes + their holds + their keys ("" = random) + the holds' lengths (0 for a tap), or HTTPException
     with what's wrong (a draft may be saved with no notes; a mod needs at least one)"""
     if allow_empty and not times:
@@ -722,8 +730,9 @@ def check_chart(times, large, length, keys=None, allow_empty=False, lens=None):
     for i, t in enumerate(times):
         if t < 0 or t > length:
             raise HTTPException(400, f"note {i + 1} is outside the song")
-        if i and t - times[i - 1] < MIN_NOTE_GAP:
-            raise HTTPException(400, f"notes {i} and {i + 1} are closer than {MIN_NOTE_GAP} s")
+        gap = FREE_NOTE_GAP if free else MIN_NOTE_GAP
+        if i and t - times[i - 1] < gap - 1e-6:
+            raise HTTPException(400, f"notes {i} and {i + 1} are closer than {gap} s")
         if (i + 1) in large and i + 1 < len(times) and times[i + 1] - t < lens[i] + 0.05:
             raise HTTPException(400, f"note {i + 2} starts inside the hold {i + 1}")
         if (i + 1) in large and t + lens[i] > length + 0.01:
@@ -748,10 +757,11 @@ async def save_chart(u: str, request: Request):
         large = {int(i) for i in body.get("large", [])}
         keys = [str(k or "") for k in body.get("keys", [])]
         lens = [float(x or 0) for x in body.get("lens", [])]
+        free = bool(body.get("free"))
     except Exception:
         raise HTTPException(400, "bad chart")
     length = r["len"] or 0
-    times, large, keys, lens = check_chart(times, large, length, keys, allow_empty=True, lens=lens)
+    times, large, keys, lens = check_chart(times, large, length, keys, allow_empty=True, lens=lens, free=free)
     ps = round(float(body.get("preview_start", r["preview_start"] or 0)), 2)
     pl = round(float(body.get("preview_len", r["preview_len"] or PREVIEW_LEN)), 2)
     if not 10 <= pl <= 30 or ps < 0 or ps + pl > length + 0.01:
@@ -768,6 +778,8 @@ async def save_chart(u: str, request: Request):
         chart["keys"] = keys
     if lens:
         chart["lens"] = lens
+    if free:
+        chart["free"] = True
     if (ps, pl) != (r["preview_start"], r["preview_len"]) and os.path.exists(os.path.join(song_dir(u), "full.ogg")):
         make_preview(u, ps, pl)
     with _db() as con:
@@ -1019,7 +1031,7 @@ def build(u: str, request: Request):
     chart = json.loads(r["chart"])
     if not chart.get("t"):
         raise HTTPException(400, "no notes yet: place them (or ask for the automatic ones) and save")
-    check_chart(chart["t"], set(chart["large"]), r["len"] or 0, chart.get("keys"), lens=chart.get("lens"))
+    check_chart(chart["t"], set(chart["large"]), r["len"] or 0, chart.get("keys"), lens=chart.get("lens"), free=chart.get("free"))
     files = mod_files(r)
     hashes = {path: hashlib.sha256(data).hexdigest() for path, data in files.items()}
     with _db() as con:

@@ -154,6 +154,7 @@ function row(s) {
   if (s.source) { sub.append(" · ", "источник:", " "); sub.appendChild(a(s.source, mlpAway(s.source))); }
   const bd = el("div", null, "badges");
   if (s.age) bd.appendChild(el("span", s.age + "+"));
+  if (s.nonstandard) { const b = el("span", "Нестандартная"); b.title = "ноты ближе 0,25 с (автор снял ограничение)"; bd.appendChild(b); }
   (s.genres || []).map(id => GENRES.find(g => g.id === id)).filter(Boolean).forEach(g => bd.appendChild(el("span", mlpLang() === "en" ? g.en || g.ru : g.ru)));
   (s.tags || []).forEach(x => bd.appendChild(el("span", "#" + x)));
   if (s.published && (s.meta_changes || []).some(k => k === "title" || k === "artist")) sub.append(" · ", "было:", " " + s.published.title + (s.published.artist ? " — " + s.published.artist : ""));
