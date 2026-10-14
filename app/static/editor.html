@@ -19,6 +19,7 @@
   .time { font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; font-size: 14px; }
   .lane { position: relative; margin-top: 8px; padding: 0; overflow: hidden; }
   canvas { display: block; width: 100%; height: 270px; touch-action: none; cursor: crosshair; }
+  canvas.pick { cursor: default; }
   canvas.erase { cursor: not-allowed; } canvas.grip { cursor: ew-resize; } canvas.cycle { cursor: pointer; } canvas.band { cursor: col-resize; }
   input[type=range].scroll { width: 100%; margin: 6px 0 0; padding: 0; accent-color: var(--pink); }
   .side { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
@@ -74,7 +75,40 @@
   .pub .ok { color: #20683a; } .pub .bad { color: #b3471f; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pub .ok { color: #9fe0b5; } :root:not([data-theme="light"]) .pub .bad { color: #ffb08a; } }
 :root[data-theme="dark"] .pub .ok { color: #9fe0b5; } :root[data-theme="dark"] .pub .bad { color: #ffb08a; }
-  .locked .tools button:not(#play):not(#test):not(#pplay), .locked #title, .locked #artist, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #keys, .locked .seg, .locked #mirror, .locked #fill, .locked #rec, .locked #coverUp, .locked #coverDrop, .locked #recReplace { pointer-events: none; opacity: .45; }
+  /* the editor's zones: playback above the lane, the note tools right under it, the rest below */
+  .tools.zone { margin-top: 8px; }
+  .vol { white-space: nowrap; }
+  .vol input[type=range] { width: 100px; padding: 0; margin: 0; accent-color: var(--pink); }
+  .lane .resizer { height: 14px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; border-top: 1px solid var(--line); touch-action: none; }
+  .lane .resizer::before { content: ""; width: 48px; height: 4px; border-radius: 2px; background: var(--muted); opacity: .45; }
+  .lane .resizer:hover::before, .lane .resizer.on::before { opacity: .9; }
+  .notebar .keyhint { flex: 1 1 100%; }
+  .notebar .grow { flex: 1 1 0; }
+  .notebar .brk { flex: 1 1 100%; height: 0; }
+  #undo, #redo { font-size: 18px; min-width: 40px; padding: 4px 10px; }
+  .notebar #warns { flex: 1 1 100%; }
+  .notebar #warns:empty { display: none; }
+  .notebar .warn { margin: 2px 0; }
+  .btn.redo { background: #e6dcff; color: #4a2c8a; }
+  .keys .k-hold { background: #f2c94c; color: #5a3d00; font-size: 20px; }
+  /* field | button rows (trim, fragment) */
+  .fgrid { display: grid; grid-template-columns: max-content 110px max-content; gap: 6px 8px; align-items: center; margin: 6px 0; }
+  .fgrid > label { font-size: 13px; color: var(--muted); }
+  .fgrid input, .fgrid select { width: 100%; padding: 5px 8px; box-sizing: border-box; }
+  .fgrid .btn { text-align: center; }
+  .chk { font-size: 13px; display: inline-flex; gap: 6px; align-items: center; color: var(--text); }
+  .chk input { width: auto; }
+  details.more { margin-top: 6px; }
+  details.more > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  details.more > summary:hover { color: var(--text); }
+  details.more p { margin: 4px 0; font-size: 13px; color: var(--muted); }
+  details.help { margin-top: 8px; padding: 10px 14px; }
+  details.help > summary { cursor: pointer; font-weight: 700; font-size: 15px; }
+  .help-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0 28px; }
+  .help h4 { margin: 12px 0 4px; font-size: 14px; }
+  .help ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .help li { margin: 3px 0; }
+  .locked .notebar, .locked #title, .locked #artist, .locked #auto, .locked #clear, .locked #save, .locked #rec, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #coverUp, .locked #coverDrop, .locked #recReplace, .locked #recOffset { pointer-events: none; opacity: .45; }
   @media (max-width: 760px) { .head, .side { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -90,7 +124,18 @@
       <input id="artist" maxlength="80" placeholder="Исполнитель" aria-label="Исполнитель">
       <span class="facts" id="facts"></span>
     </div>
-    <div class="card lane"><canvas id="cv" aria-label="Дорожка нот"></canvas></div>
+    <div class="card tools zone" id="transport">
+      <button class="btn main" id="play" title="Пробел">▶ Играть</button>
+      <button class="btn rec" id="rec" title="Live-запись: песня играет, вы жмёте клавиши в такт">● Запись</button>
+      <span class="time" id="time">0:00.0</span>
+      <span class="sep"></span>
+      <label title="Медленнее — проще попасть в такт (звук ниже). На «Проверить» не действует">Скорость <select id="rate"><option value="1" selected>1×</option><option value="0.75">0,75×</option><option value="0.5">0,5×</option></select></label>
+      <label>Масштаб <button class="btn" id="zout" title="−">−</button><button class="btn" id="zin" title="+">+</button></label>
+      <span class="sep"></span>
+      <label class="vol" title="Громкость песни">🔊 Песня <input type="range" id="vol" min="0" max="100" value="70" aria-label="Громкость песни"></label>
+      <label class="vol" title="Щелчки на каждом ударе во время игры (M) и их громкость"><input type="checkbox" id="metro" style="width:auto"> Метроном <input type="range" id="mvol" min="0" max="100" value="80" aria-label="Громкость метронома"></label>
+    </div>
+    <div class="card lane"><canvas id="cv" aria-label="Дорожка нот"></canvas><div class="resizer" id="resizer" title="Потяните, чтобы сделать дорожку выше или ниже (двойной щелчок — как было)"></div></div>
     <input type="range" class="scroll" id="scroll" min="0" max="1000" value="0" aria-label="Прокрутка">
     <div class="recbar" id="recbar">
       <b>● Запись</b>
@@ -99,51 +144,76 @@
       <span id="recCount">0 нот</span>
       <button class="btn" id="recStop">■ Стоп (Esc)</button>
     </div>
-    <div class="card tools" style="margin-top:8px">
-      <button class="btn main" id="play" title="Пробел">▶ Играть</button>
-      <button class="btn rec" id="rec" title="Live-запись: песня играет, вы жмёте клавиши в такт">● Запись</button>
-      <span class="time" id="time">0:00.0</span>
+    <div class="card tools zone notebar" id="notebar">
+      <span class="seg" role="group" aria-label="Режим щелчка по дорожке">
+        <button id="mBrush" title="Щелчок по пустому месту дорожки ставит ноту выбранного вида (B — переключить)">🖌 Кисть</button><button id="mEdit" title="Щелчок выбирает ноты, протянуть — выбрать отрезок; кнопки нот меняют выбранные (B — переключить)">⬚ Выбор</button>
+      </span>
+      <span class="keys" id="keys" role="group" aria-label="Вид ноты">
+        <button class="btn k-up" data-k="up" title="Вверх (1)">↑</button><button class="btn k-down" data-k="down" title="Вниз (2)">↓</button>
+        <button class="btn k-left" data-k="left" title="Влево (3)">←</button><button class="btn k-right" data-k="right" title="Вправо (4)">→</button>
+        <button class="btn k-act" data-k="act" title="Действие: Пробел / E (5)">E</button><button class="btn k-any" data-k="" title="Случайно: в каждой игре своя клавиша (0)">🎲</button>
+        <button class="btn k-hold" data-k="hold" title="Удержание: держать любую клавишу (6 или H)">▬</button>
+      </span>
+      <span class="grow"></span>
+      <button class="btn del" id="del" title="Удалить выбранные (Delete)">🗑 Удалить</button>
+      <button class="btn undo" id="undo" title="Отменить (Ctrl+Z)">↶</button><button class="btn redo" id="redo" title="Вернуть (Ctrl+Y)">↷</button>
+      <span class="brk"></span>
+      <label title="Куда встают ноты: на удар песни, на его половины / четверти или куда угодно">Привязка <select id="snap"><option value="0">нет</option><option value="1" selected>к удару</option><option value="2">½ удара</option><option value="4">¼ удара</option></select></label>
       <span class="sep"></span>
-      <label>Масштаб <button class="btn" id="zout" title="−">−</button><button class="btn" id="zin" title="+">+</button></label>
-      <label title="Медленнее — проще попасть в такт (звук ниже). На «Проверить» не действует">Скорость <select id="rate"><option value="1" selected>1×</option><option value="0.75">0,75×</option><option value="0.5">0,5×</option></select></label>
-      <label title="Щелчки на каждом ударе во время игры (M)"><input type="checkbox" id="metro" style="width:auto"> Метроном</label>
-      <label>Привязка <select id="snap"><option value="0">нет</option><option value="1" selected>к удару</option><option value="2">½ удара</option><option value="4">¼ удара</option></select></label>
-      <span class="sep"></span>
-      <button class="btn hold" id="hold" title="H">Удержание</button>
-      <button class="btn del" id="del" title="Delete">Удалить ноту</button>
-      <button class="btn undo" id="undo" title="Ctrl+Z">↶ Отменить</button>
-      <span class="sep"></span>
+      <button class="btn" id="mirror" title="Зеркало выбранных: ← ↔ →, ↑ ↔ ↓ (X)">⇄ Зеркало</button>
+      <button class="btn" id="fill" title="Ноты на каждом шаге привязки между первой и последней выбранной (F)">⋯ Заполнить</button>
+      <span class="keyhint" id="keyhint"></span>
+      <div id="warns"></div>
+    </div>
+    <div class="card tools zone" id="actions">
       <button class="btn" id="auto">Расставить автоматически</button>
       <button class="btn del" id="clear" title="Убрать все ноты">Очистить все ноты</button>
       <span class="sep"></span>
-      <button class="btn main" id="test">Проверить</button>
-      <button class="btn main" id="save">Сохранить</button>
+      <button class="btn main" id="test" title="Сыграть с текущего места, как в игре">Проверить</button>
+      <button class="btn main" id="save" title="Ctrl+S">Сохранить</button>
       <span class="status" id="status"></span>
-      <div class="keyrow">
-        <span class="seg" role="group" aria-label="Что меняют кнопки направления">
-          <button id="mBrush" title="B — переключить">🖌 Кисть: новые ноты</button><button id="mEdit" title="B — переключить">✎ Правка: выбранные ноты</button>
-        </span>
-        <span class="keys" id="keys">
-          <button class="btn k-up" data-k="up" title="Вверх (1)">↑</button><button class="btn k-down" data-k="down" title="Вниз (2)">↓</button>
-          <button class="btn k-left" data-k="left" title="Влево (3)">←</button><button class="btn k-right" data-k="right" title="Вправо (4)">→</button>
-          <button class="btn k-act" data-k="act" title="Действие: Пробел / E (5)">E</button><button class="btn k-any" data-k="" title="Случайно: в каждой игре своя клавиша (0)">🎲</button>
-        </span>
-        <button class="btn" id="mirror" title="Зеркало выбранных: ← ↔ →, ↑ ↔ ↓ (X)">⇄ Зеркало</button>
-        <button class="btn" id="fill" title="Ноты на каждом шаге привязки между первой и последней выбранной (F)">⋯ Заполнить по сетке</button>
-        <span class="keyhint" id="keyhint"></span>
-      </div>
     </div>
     <div class="side">
       <div class="card">
-        <h3>Фрагмент для прослушивания</h3>
-        <p>Его услышат все в общем списке песен.</p>
-        <div class="tools" style="padding:4px 0">
-          <label>Начало, с <input type="number" id="pstart" min="0" step="0.5" style="width:90px"></label>
-          <label>Длина <select id="plen"><option>10</option><option>15</option><option selected>20</option><option>25</option><option>30</option></select> с</label>
-          <button class="btn" id="phere">С текущего места</button>
-          <button class="btn" id="pplay">▶ Фрагмент</button>
+        <h3>Live-запись</h3>
+        <label class="chk" title="Вкл.: все старые ноты между началом и концом записи стираются, остаются только записанные. Выкл.: старые остаются, убираются лишь те, что ближе 0,25 с к новым."><input type="checkbox" id="recReplace" checked> Стирать старые ноты там, где шла запись</label>
+        <div class="fgrid">
+          <label for="recOffset">Поправка, мс</label><input type="number" id="recOffset" value="0" step="10" title="Если ноты встают позже звука — поставьте, например, −60"><span></span>
         </div>
-        <p>На дорожке он подсвечен сверху.</p>
+        <details class="more"><summary>Подробнее</summary>
+          <p data-i18n="liveHelp">«● Запись» — песня играет с текущего места, вы жмёте клавиши в такт, ноты ставятся сами (с направлением; держите дольше
+            ~0,6 с — удержание). Потом поправьте точечно. Всю запись отменяет один <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</p>
+          <p>«Стирать старые ноты»: включено — от начала до конца записи остаются только записанные ноты (переписать кусок заново). Выключено — старые ноты остаются, добавляются новые (убираются только старые ближе 0,25 с к новым).</p>
+          <p>«Поправка»: если ноты встают позже звука — поставьте, например, −60.</p>
+          <p>Привязка (к удару / ½ / ¼) действует и на запись.</p>
+        </details>
+      </div>
+      <div class="card">
+        <h3>Фрагмент для прослушивания</h3>
+        <div class="fgrid">
+          <label for="pstart">Начало, с</label><input type="number" id="pstart" min="0" step="0.5"><button class="btn" id="phere">С текущего места</button>
+          <label for="plen">Длина, с</label><select id="plen"><option>10</option><option>15</option><option selected>20</option><option>25</option><option>30</option></select><button class="btn" id="pplay">▶ Фрагмент</button>
+        </div>
+        <details class="more"><summary>Подробнее</summary>
+          <p>Его услышат все в общем списке песен.</p>
+          <p>На дорожке он подсвечен сверху.</p>
+        </details>
+      </div>
+      <div class="card">
+        <h3>Обрезка песни</h3>
+        <div class="fgrid">
+          <label for="tstart">Начало, с</label><input type="number" id="tstart" min="0" step="0.1"><button class="btn" id="tsHere">С текущего места</button>
+          <label for="tend">Конец, с</label><input type="number" id="tend" min="0" step="0.1"><button class="btn" id="teHere">По текущее место</button>
+        </div>
+        <div class="tools" style="padding:4px 0">
+          <button class="btn main" id="trim">Обрезать</button>
+          <button class="btn" id="untrim">Вся песня</button>
+          <span class="status" id="trimInfo"></span>
+        </div>
+        <details class="more"><summary>Подробнее</summary>
+          <p>Оставьте нужный кусок загруженной песни (не меньше 20 с). Ноты сдвинутся вместе с ним, ноты вне куска уберутся.
+            Исходная песня хранится — обрезку можно поменять или вернуть всю песню.</p>
+        </details>
       </div>
       <div class="card">
         <h3>Обложка</h3>
@@ -156,56 +226,59 @@
               <button class="btn" id="coverDrop">Убрать свою</button>
               <input type="file" id="coverFile" accept=".jpg,.jpeg,.png,.webp,.gif,image/*" hidden>
             </div>
-            <p>jpg / png / webp / gif до 5 МБ, обрежется в квадрат 512×512. Она же — значок мода в Мастерской (addon.jpg, 512×512, до 1 МБ — сайт подгонит сам).</p>
+            <details class="more"><summary>Подробнее</summary>
+              <p>jpg / png / webp / gif до 5 МБ, обрежется в квадрат 512×512. Она же — значок мода в Мастерской (addon.jpg, 512×512, до 1 МБ — сайт подгонит сам).</p>
+            </details>
           </div>
         </div>
       </div>
-      <div class="card">
-        <h3>Live-запись</h3>
-        <p data-i18n="liveHelp">«● Запись» — песня играет с текущего места, вы жмёте клавиши в такт, ноты ставятся сами (с направлением; держите дольше
-          ~0,6 с — удержание). Потом поправьте точечно. Всю запись отменяет один <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</p>
-        <div class="tools" style="padding:4px 0">
-          <label><input type="checkbox" id="recReplace" checked style="width:auto"> заменить ноты в записанном отрезке</label>
-          <label>Поправка, мс <input type="number" id="recOffset" value="0" step="10" style="width:80px" title="Если ноты встают позже звука — поставьте, например, −60"></label>
-        </div>
-        <p>Привязка (к удару / ½ / ¼) действует и на запись.</p>
-      </div>
-      <div class="card">
-        <h3>Обрезка песни</h3>
-        <p>Оставьте нужный кусок загруженной песни (не меньше 20 с). Ноты сдвинутся вместе с ним, ноты вне куска уберутся.
-          Исходная песня хранится — обрезку можно поменять или вернуть всю песню.</p>
-        <div class="tools" style="padding:4px 0">
-          <label>Начало, с <input type="number" id="tstart" min="0" step="0.1" style="width:90px"></label>
-          <button class="btn" id="tsHere">С текущего места</button>
-          <label>Конец, с <input type="number" id="tend" min="0" step="0.1" style="width:90px"></label>
-          <button class="btn" id="teHere">По текущее место</button>
-        </div>
-        <div class="tools" style="padding:4px 0">
-          <button class="btn main" id="trim">Обрезать</button>
-          <button class="btn" id="untrim">Вся песня</button>
-          <span class="status" id="trimInfo"></span>
-        </div>
-      </div>
-      <div class="card">
-        <h3>Как править</h3>
-        <p data-i18n="help1">Клик по нижней части дорожки — поставить ноту или выбрать её; тяните, чтобы сдвинуть (выбранные — все вместе).
-          Клик по волне — перемотка; колесо — прокрутка, <kbd>Ctrl</kbd>+колесо — масштаб.</p>
-        <p data-i18n="help2"><b>Кисть</b> — выберите направление и ставьте ноты подряд, каждая получит его. <b>Правка</b> — кнопки меняют
-          выбранные ноты. Направления: <kbd>1</kbd>–<kbd>5</kbd> = ↑ ↓ ← → E, <kbd>0</kbd> = 🎲 (в каждой игре своя
-          случайная клавиша), <kbd>Q</kbd> — следующее по кругу, <kbd>B</kbd> — Кисть / Правка. Удержание — любая клавиша.</p>
-        <p data-i18n="help3"><kbd>Shift</kbd>+клик — добавить / убрать ноту из выбора, <kbd>Shift</kbd>+протянуть — выбрать отрезок,
-          <kbd>Ctrl</kbd>+<kbd>A</kbd> — все, <kbd>Esc</kbd> — снять выбор. <kbd>Alt</kbd>+клик (или протянуть) — стереть.
-          <kbd>Ctrl</kbd>+клик по ноте — следующее направление. <kbd>H</kbd> — удержание (его длину — тяните за конец полосы или <kbd>[</kbd> <kbd>]</kbd>), <kbd>Delete</kbd> — удалить выбранные.
-          <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> — сдвинуть выбранные на шаг привязки, <kbd>←</kbd> <kbd>→</kbd> — к соседней ноте.
-          <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> — копировать выбранные и вставить с места курсора (повторить
-          припев). <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> — отменить / вернуть, <kbd>Ctrl</kbd>+<kbd>S</kbd> —
-          сохранить, <kbd>Пробел</kbd> — играть / пауза.</p>
-        <p data-i18n="help4"><kbd>X</kbd> — зеркало выбранных (← ↔ →, ↑ ↔ ↓): припев повтором наоборот. <kbd>F</kbd> — заполнить по сетке:
-          между первой и последней выбранной нотой ставится нота на каждом шаге привязки (направление — кисть).
-          <kbd>M</kbd> — метроном, «Скорость» 0,75× / 0,5× — расставлять медленно (и записывать тоже).</p>
-        <div id="warns"></div>
-      </div>
     </div>
+    <details class="card help" id="help">
+      <summary>Как править</summary>
+      <div class="help-cols">
+        <div>
+          <h4>Дорожка</h4>
+          <ul data-i18n="hMouse">
+            <li>Верх — волна песни: щелчок перематывает.</li>
+            <li>Низ — ноты. Щелчок по ноте выбирает её, тяните — сдвинуть (выбранные — все вместе).</li>
+            <li>Колесо — прокрутка, <kbd>Ctrl</kbd>+колесо — масштаб.</li>
+            <li>Полоска под дорожкой — сделать её выше или ниже.</li>
+          </ul>
+          <h4>Кисть и Выбор</h4>
+          <ul data-i18n="hModes">
+            <li><b>🖌 Кисть</b> — щелчок по пустому месту ставит ноту того вида, что выбран в кнопках нот.</li>
+            <li><b>⬚ Выбор</b> — новые ноты не ставятся: щелчок выбирает, протянуть по пустому — выбрать отрезок; кнопки нот меняют выбранные.</li>
+            <li><kbd>B</kbd> — переключить. В Кисти кнопка ноты перекрашивает выбранные, если их две и больше.</li>
+          </ul>
+          <h4>Кнопки нот</h4>
+          <ul data-i18n="hKeys">
+            <li><kbd>1</kbd>–<kbd>5</kbd> — ↑ ↓ ← → E, <kbd>0</kbd> — 🎲 (в каждой игре своя случайная клавиша), <kbd>6</kbd> — ▬ удержание.</li>
+            <li><kbd>Q</kbd> — следующее направление по кругу, <kbd>Ctrl</kbd>+клик по ноте — то же для неё.</li>
+            <li>Удержание: <kbd>H</kbd> — включить / выключить у выбранных; длина — тяните за конец полосы или <kbd>[</kbd> <kbd>]</kbd>. В игре его держат любой клавишей.</li>
+          </ul>
+        </div>
+        <div>
+          <h4>Выбор нот</h4>
+          <ul data-i18n="hPick">
+            <li><kbd>Shift</kbd>+клик — добавить / убрать ноту, <kbd>Shift</kbd>+протянуть — добавить отрезок.</li>
+            <li><kbd>Ctrl</kbd>+<kbd>A</kbd> — все, <kbd>Esc</kbd> — снять выбор, <kbd>←</kbd> <kbd>→</kbd> — к соседней ноте.</li>
+          </ul>
+          <h4>Правка</h4>
+          <ul data-i18n="hEdit">
+            <li><kbd>Delete</kbd> — удалить выбранные, <kbd>Alt</kbd>+клик (или протянуть) — стереть.</li>
+            <li><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> — сдвинуть выбранные на шаг привязки.</li>
+            <li><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> — копировать и вставить с места курсора (повторить припев).</li>
+            <li><kbd>X</kbd> — зеркало выбранных (← ↔ →, ↑ ↔ ↓), <kbd>F</kbd> — заполнить по сетке между первой и последней выбранной.</li>
+            <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> — отменить / вернуть.</li>
+          </ul>
+          <h4>Звук и сохранение</h4>
+          <ul data-i18n="hPlay">
+            <li><kbd>Пробел</kbd> — играть / пауза, <kbd>M</kbd> — метроном, «Скорость» 0,75× / 0,5× — расставлять (и записывать) медленно.</li>
+            <li><kbd>Ctrl</kbd>+<kbd>S</kbd> — сохранить.</li>
+          </ul>
+        </div>
+      </div>
+    </details>
     <div class="card pub" id="pub"></div>
   </div>
 </main>
@@ -226,6 +299,7 @@ let sel = -1, zoom = 140, view = 0, dirty = false, undo = [], redo = [];
 let picked = new Set();         // the selected notes (objects); sel = the main one (index), the one keys / arrows act on
 let brush = "", keyMode = "brush", hover = null, band = null, clip = [];
 let playing = null;             // { src, at, from }
+let musicGain = null, metroGain = null;   // the song's and the metronome's volume (the sliders)
 const cv = $("cv"), g = cv.getContext("2d");
 
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
@@ -255,6 +329,7 @@ async function load() {
   const audio = await (await fetch("/api/v1/songs/" + UUID + "/full.ogg")).arrayBuffer();
   ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
   buf = await ctx.decodeAudioData(audio);
+  setupGains();
   peaks = buildPeaks(buf);
   notes = chartNotes(song.chart);
   showTrim(); showCover();
@@ -420,7 +495,7 @@ function now() { return playing ? playing.from + (ctx.currentTime - playing.at) 
 function play(from, until) {
   stop();
   if (ctx.state === "suspended") ctx.resume();
-  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(musicGain);
   from = Math.max(0, Math.min(from, buf.duration - 0.05));
   const rate = +$("rate").value || 1;
   src.playbackRate.value = rate;
@@ -430,6 +505,24 @@ function play(from, until) {
   $("play").textContent = "❚❚ Пауза";
   requestAnimationFrame(tick);
 }
+// volume: the slider squared (a natural feel); the metronome up to twice its old click, so it's heard over a loud song
+function setupGains() {
+  if (musicGain) return;
+  musicGain = ctx.createGain(); musicGain.connect(ctx.destination);
+  metroGain = ctx.createGain(); metroGain.connect(ctx.destination);
+  applyVol();
+}
+function applyVol() {
+  if (!musicGain) return;
+  musicGain.gain.value = Math.pow(+$("vol").value / 100, 2);
+  metroGain.gain.value = 2 * Math.pow(+$("mvol").value / 100, 2);
+}
+["vol", "mvol"].forEach(id => {
+  const v = window.mlpStore.get("mlpEd_" + id); if (v !== null && v !== undefined && v !== "") $(id).value = v;
+  $(id).addEventListener("input", applyVol);
+  $(id).addEventListener("change", () => { window.mlpStore.set("mlpEd_" + id, $(id).value); $(id).blur(); });
+});
+$("mvol").addEventListener("input", () => { if (!$("metro").checked) { $("metro").checked = true; if (playing) playing.beat = -1; } });
 function stop() { if (playing) { window._pos = now(); const p = playing; playing = null; try { p.src.stop(); } catch (e) {} } $("play").textContent = "▶ Играть"; }
 // the metronome: a short click on each beat of the grid, scheduled a little ahead (sample-exact, like the song)
 function metronome() {
@@ -443,7 +536,7 @@ function metronome() {
     const o = ctx.createOscillator(), v = ctx.createGain();
     o.frequency.value = i % 4 === 0 ? 1650 : 1100;
     v.gain.setValueAtTime(0.0001, at); v.gain.exponentialRampToValueAtTime(0.5, at + 0.002); v.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
-    o.connect(v); v.connect(ctx.destination); o.start(at); o.stop(at + 0.06);
+    o.connect(v); v.connect(metroGain); o.start(at); o.stop(at + 0.06);
     playing.beat = i;
   }
 }
@@ -471,6 +564,21 @@ function setView(v) {
   $("scroll").value = song.len > w ? Math.round(view / (song.len - w) * 1000) : 0;
 }
 const X = t => (t - view) * zoom, T = x => view + x / zoom;
+const LANE_H = 270, LANE_MIN = 170, LANE_MAX = 640;
+function setLaneH(h, keep) {
+  h = Math.round(Math.max(LANE_MIN, Math.min(LANE_MAX, h)));
+  cv.style.height = h === LANE_H ? "" : h + "px";
+  if (keep) window.mlpStore.set("mlpEdLaneH", h === LANE_H ? "" : String(h));
+  if (song) resize();
+}
+{
+  const saved = +window.mlpStore.get("mlpEdLaneH"); if (saved) setLaneH(saved);
+  const rz = $("resizer"); let d = null;
+  rz.addEventListener("pointerdown", e => { rz.setPointerCapture(e.pointerId); d = { y: e.clientY, h: cv.clientHeight }; rz.classList.add("on"); e.preventDefault(); });
+  rz.addEventListener("pointermove", e => { if (d) setLaneH(d.h + e.clientY - d.y); });
+  rz.addEventListener("pointerup", () => { if (!d) return; d = null; rz.classList.remove("on"); setLaneH(cv.clientHeight, true); });
+  rz.addEventListener("dblclick", () => setLaneH(LANE_H, true));
+}
 function beatGrid() { return song.beats && song.beats.length ? song.beats : []; }
 function snapT(t) {
   const div = +$("snap").value, bs = beatGrid();
@@ -533,8 +641,8 @@ function draw() {
   });
   if (band) { const a = X(Math.min(band.a, band.b)), b = X(Math.max(band.a, band.b)); g.fillStyle = C.lilac; g.globalAlpha = 0.18; g.fillRect(a, wh, b - a, H - wh); g.globalAlpha = 1; }
   // the brush: where a click puts the next note, and with what
-  if (hover && !drag && !band && !playing && !locked() && hover.y > wh && !hover.mod && noteAt(hover.x, hover.y) < 0) {
-    g.globalAlpha = 0.35; noteSign(X(snapT(T(hover.x))), ny, Rg, keyMode === "brush" ? brush : "", C, false, false); g.globalAlpha = 1;
+  if (keyMode === "brush" && hover && !drag && !band && !playing && !locked() && hover.y > wh && !hover.mod && noteAt(hover.x, hover.y) < 0) {
+    g.globalAlpha = 0.35; noteSign(X(snapT(T(hover.x))), ny, Rg, brush, C, false, false); g.globalAlpha = 1;
   }
   // the notes being recorded right now (ringed, on top)
   (window._recPreview || []).forEach(n => {
@@ -599,7 +707,7 @@ function lanePos(e) { const r = cv.getBoundingClientRect(); return { x: e.client
 function modCursor(e) {           // the lane's cursor tells what a click with this key does
   if (!hover) return;
   hover.mod = e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
-  cv.className = e.altKey ? "erase" : (e.ctrlKey || e.metaKey) ? "cycle" : e.shiftKey ? "band" : (gripAt(hover.x, hover.y) >= 0 ? "grip" : "");
+  cv.className = e.altKey ? "erase" : (e.ctrlKey || e.metaKey) ? "cycle" : e.shiftKey ? "band" : (gripAt(hover.x, hover.y) >= 0 ? "grip" : keyMode === "edit" ? "pick" : "");
 }
 cv.addEventListener("pointerdown", e => {
   const { x, y } = lanePos(e);
@@ -633,11 +741,12 @@ cv.addEventListener("pointerdown", e => {
     drag = { n, t0: n.t, moved: false, from: new Map(selNotes().map(m => [m, m.t])) };
     draw(); showKeys(); return;
   }
+  if (keyMode === "edit") { picked.clear(); sel = -1; band = { a: T(x), b: T(x), keep: new Set() }; draw(); showKeys(); return; }
   const t = snapT(T(x));
   const same = notes.findIndex(m => Math.abs(m.t - t) < 0.001);   // the snapped place is taken: pick that note
   if (same >= 0) { pick(same); draw(); showKeys(); return; }
   snapshot();
-  const n = { t, hold: false, key: keyMode === "brush" ? brush : "" };
+  const n = brush === "hold" ? { t, hold: true, key: "", len: newHold() } : { t, hold: false, key: brush };
   notes.push(n); notes.sort((a, b) => a.t - b.t);
   pick(notes.indexOf(n));
   mark(); showKeys();
@@ -707,30 +816,33 @@ function fillNotes() {
   } else { const st = (song.beat || 0.5) / div; for (let t = a; t <= b + 1e-6; t += st) pts.push(t); }
   const blocked = t => notes.some(n => Math.abs(n.t - t) < MIN_GAP || (n.hold && t > n.t && t < n.t + hl(n) + 0.05));
   const add = [];
-  pts.forEach(t => { t = Math.round(t * 1000) / 1000; if (t > a + 0.001 && t < b - 0.001 && !blocked(t) && !add.some(m => Math.abs(m.t - t) < MIN_GAP)) add.push({ t, hold: false, key: keyMode === "brush" ? brush : "" }); });
+  pts.forEach(t => { t = Math.round(t * 1000) / 1000; if (t > a + 0.001 && t < b - 0.001 && !blocked(t) && !add.some(m => Math.abs(m.t - t) < MIN_GAP)) add.push({ t, hold: false, key: keyMode === "brush" && brush !== "hold" ? brush : "" }); });
   if (!add.length) { setStatus("свободных мест на сетке между ними нет"); return; }
   snapshot(); notes = notes.concat(add).sort((x, y) => x.t - y.t);
   add.forEach(n => picked.add(n)); mark(); setStatus(`добавлено нот: ${add.length}`);
 }
 $("mirror").onclick = mirrorNotes; $("fill").onclick = fillNotes;
-["snap", "rate", "metro"].forEach(id => $(id).addEventListener("change", () => $(id).blur()));   // the editor's keys work right after
+["snap", "rate", "metro", "recReplace"].forEach(id => $(id).addEventListener("change", () => $(id).blur()));   // the editor's keys work right after
 $("metro").onchange = () => { if (playing) playing.beat = -1; $("metro").blur(); };
 $("rate").onchange = () => { if (playing) play(now()); $("rate").blur(); };   // blur: Space / keys go back to the editor
 
 // directions. Кисть: the button picks the brush, new notes get it (a picked group of 2+ is repainted too).
 // Правка: the button changes the picked notes.
-const KNAME = { up: "↑", down: "↓", left: "←", right: "→", act: "E", "": "🎲" };
+const KNAME = { up: "↑", down: "↓", left: "←", right: "→", act: "E", "": "🎲", hold: "▬" };
 function applyKey(k) {
-  const ns = selNotes().filter(n => !n.hold);
-  if (!ns.length) { if (picked.size) setStatus("у удержания любая клавиша"); return 0; }
-  snapshot(); ns.forEach(n => n.key = k); mark(); return ns.length;
+  const ns = selNotes();
+  if (!ns.length) return 0;
+  snapshot();
+  if (k === "hold") ns.forEach(n => { if (!n.hold) { n.hold = true; n.key = ""; if (!(n.len > 0)) n.len = newHold(); } });
+  else ns.forEach(n => { n.hold = false; n.key = k; });
+  mark(); return ns.length;
 }
 function setKey(k) {
   if (locked()) return;
   if (keyMode === "brush") {
     brush = k;
     const n = picked.size >= 2 ? applyKey(k) : 0;
-    setStatus(n ? `кисть ${KNAME[k]}, перекрашено нот: ${n}` : `кисть ${KNAME[k]} — новые ноты получат это направление`);
+    setStatus(n ? `кисть ${KNAME[k]}, изменено нот: ${n}` : `кисть ${KNAME[k]} — так встанут новые ноты`);
   } else {
     if (!picked.size) { setStatus("выберите ноту (или несколько — Shift)"); return; }
     applyKey(k);
@@ -738,21 +850,23 @@ function setKey(k) {
   showKeys(); draw();
 }
 function cycleKey() {
-  if (keyMode === "brush" && picked.size < 2) { setKey(nextKey(brush)); return; }
+  if (keyMode === "brush" && picked.size < 2) { setKey(nextKey(brush === "hold" ? "" : brush)); return; }
   const m = notes[sel] && !notes[sel].hold ? notes[sel] : selNotes().find(n => !n.hold);
   if (m) setKey(nextKey(m.key));
 }
 function setMode(m) {
   keyMode = m; window.mlpStore.set("mlpEdKeyMode", m);
-  $("mBrush").classList.toggle("on", m === "brush"); $("mEdit").classList.toggle("on", m === "edit"); showKeys(); draw();
+  $("mBrush").classList.toggle("on", m === "brush"); $("mEdit").classList.toggle("on", m === "edit");
+  if (hover) cv.className = m === "edit" ? "pick" : "";
+  showKeys(); draw();
 }
 function showKeys() {
   let k = null;
   if (keyMode === "brush") k = brush;
-  else if (sel >= 0 && notes[sel] && !notes[sel].hold) k = notes[sel].key || "";
+  else if (sel >= 0 && notes[sel]) k = notes[sel].hold ? "hold" : (notes[sel].key || "");
   document.querySelectorAll("#keys .btn").forEach(b => b.classList.toggle("on", k !== null && b.dataset.k === k));
-  const hint = keyMode === "brush" ? `ставьте ноты — каждая получит ${KNAME[brush]}` + (picked.size >= 2 ? ` · выбрано ${picked.size}: кнопка перекрасит их` : "")
-    : (picked.size ? `выбрано нот: ${picked.size}` : "выберите ноту, потом направление");
+  const hint = keyMode === "brush" ? `Кисть: щелчок по дорожке ставит ноту ${KNAME[brush]}` + (picked.size >= 2 ? ` · выбрано ${picked.size}: кнопка ноты изменит их` : "")
+    : (picked.size ? `Выбор: выбрано нот: ${picked.size} — кнопка ноты изменит их` : "Выбор: щёлкните ноту или протяните по дорожке, потом кнопку ноты");
   if (showKeys.last !== hint) { showKeys.last = hint; $("keyhint").textContent = hint; }
 }
 document.querySelectorAll("#keys .btn").forEach(b => b.onclick = () => setKey(b.dataset.k));
@@ -799,7 +913,7 @@ function pasteNotes() {
   picked = new Set(add); sel = notes.indexOf(add[0]); mark();
   setStatus(`вставлено нот: ${add.length}`);
 }
-$("hold").onclick = toggleHold; $("del").onclick = delNote; $("undo").onclick = doUndo;
+$("del").onclick = delNote; $("undo").onclick = doUndo; $("redo").onclick = doRedo;
 $("play").onclick = () => playing ? stop() : play(now());
 document.addEventListener("keydown", e => {
   modCursor(e);
@@ -823,7 +937,7 @@ document.addEventListener("keydown", e => {
   else if (c === "KeyX") mirrorNotes();
   else if (c === "KeyF") fillNotes();
   else if (c === "KeyM") { $("metro").checked = !$("metro").checked; if (playing) playing.beat = -1; setStatus($("metro").checked ? "метроном включён" : "метроном выключен"); }
-  else if (/^(Digit|Numpad)[0-5]$/.test(c)) setKey({ 1: "up", 2: "down", 3: "left", 4: "right", 5: "act", 0: "" }[c.slice(-1)]);
+  else if (/^(Digit|Numpad)[0-6]$/.test(c)) setKey({ 1: "up", 2: "down", 3: "left", 4: "right", 5: "act", 0: "", 6: "hold" }[c.slice(-1)]);
   else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && e.shiftKey) { e.preventDefault(); nudge(e.key === "ArrowLeft" ? -1 : 1); }
   else if (e.key === "ArrowLeft" && sel >= 0) { e.preventDefault(); pick(Math.max(0, sel - 1)); window._pos = notes[sel].t; draw(); showKeys(); }
   else if (e.key === "ArrowRight" && sel >= 0) { e.preventDefault(); pick(Math.min(notes.length - 1, sel + 1)); window._pos = notes[sel].t; draw(); showKeys(); }
@@ -854,7 +968,7 @@ function problems() {
 function checkWarnings() {
   const p = problems(), box = $("warns");
   box.textContent = "";
-  p.slice(0, 6).forEach(w => { const d = document.createElement("div"); d.className = "warn"; d.textContent = (w.hard ? "⛔ " : "⚠ ") + w.text; d.style.cursor = "pointer";
+  p.slice(0, 6).forEach(w => { const d = document.createElement("div"); d.className = "warn"; d.append(el("span", w.hard ? "⛔ " : "⚠ "), document.createTextNode(w.text)); d.style.cursor = "pointer";   // the text alone: it's translated
     d.onclick = () => { pick(w.i); window._pos = notes[w.i].t; setView(notes[w.i].t - cv.clientWidth / zoom / 3); draw(); }; box.appendChild(d); });
   if (p.length > 6) { const d = document.createElement("div"); d.className = "warn"; d.textContent = `…и ещё ${p.length - 6}`; box.appendChild(d); }
   const np = notes.length, nh = notes.filter(n => n.hold).length;
@@ -1056,7 +1170,7 @@ $("test").onclick = () => {
   const tg = tc.getContext("2d");
   const dpr = window.devicePixelRatio || 1; tc.width = tc.clientWidth * dpr; tc.height = tc.clientHeight * dpr; tg.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (ctx.state === "suspended") ctx.resume();
-  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(musicGain);
   const t0 = ctx.currentTime + 0.3; src.start(t0, start);
   const st = () => start + (ctx.currentTime - t0);
   const held = new Set();

@@ -138,9 +138,9 @@
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
   const KEYS = ["mlpTheme", "mlpLang", "mlpEdKeyMode", "lf-mode:ban_words"];   // what "remember settings" keeps
   const LOSS_LOGIN = "Не получится войти через Steam: не будет «Мои песни», загрузки и редактора песен, «Моей статистики». Если вы уже вошли — выйдете.";
-  const LOSS_PREFS = "Язык, тема, режим редактора и вид списков не запомнятся: при каждом открытии — снова как в системе и по умолчанию.";
+  const LOSS_PREFS = "Язык, тема, настройки редактора и вид списков не запомнятся: при каждом открытии — снова как в системе и по умолчанию.";
   const LOSS_LOGIN_ROW = "Без него: не получится войти через Steam — не будет «Мои песни», загрузки и редактора песен, «Моей статистики». Если вы уже вошли — выйдете.";
-  const LOSS_PREFS_ROW = "Без этого: язык, тема, режим редактора и вид списков не запомнятся — при каждом открытии снова как в системе и по умолчанию.";
+  const LOSS_PREFS_ROW = "Без этого: язык, тема, настройки редактора и вид списков не запомнятся — при каждом открытии снова как в системе и по умолчанию.";
 
   async function save(login, prefs) {
     const was = window.mlpConsent();
@@ -172,7 +172,7 @@
         { id: "login", on: mode === "login" ? true : (c.decided ? c.login : true), title: "Вход через Steam",
           what: "Cookie mlp_session на 30 дней — помнит, что вы вошли. Только для этого сайта.", loss: LOSS_LOGIN_ROW },
         { id: "prefs", on: c.decided ? c.prefs : true, title: "Запоминать настройки",
-          what: "Память браузера (localStorage): язык, тема, режим редактора нот, вид списков. Никуда не отправляется.", loss: LOSS_PREFS_ROW },
+          what: "Память браузера (localStorage): язык, тема, настройки редактора нот (режим, громкость, высота дорожки), вид списков. Никуда не отправляется.", loss: LOSS_PREFS_ROW },
       ];
       const boxes = {};
       opts.forEach(o => {
