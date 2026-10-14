@@ -99,11 +99,21 @@
   .chk { font-size: 13px; display: inline-flex; gap: 6px; align-items: center; color: var(--text); }
   .chk input { width: auto; }
   details.more { margin-top: 6px; }
+  .pub .rules { display: inline-block; font-size: 13px; margin: -4px 0 8px; }
   details.more > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
   details.more > summary:hover { color: var(--text); }
   details.more p { margin: 4px 0; font-size: 13px; color: var(--muted); }
   /* about the song: genres, tags, the source, the age marks */
   .side .about { grid-column: 1 / -1; }
+  .side #notesCard { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+  #notesCard h3 { margin: 0; }
+  details.about > summary { cursor: pointer; list-style: none; }
+  details.about > summary::-webkit-details-marker { display: none; }
+  details.about > summary h3 { margin: 0; display: inline; }
+  details.about > summary h3::before { content: "▸ "; color: var(--muted); }
+  details.about[open] > summary h3::before { content: "▾ "; }
+  details.about[open] > summary { margin-bottom: 6px; }
+  .about .opt { font-weight: 400; font-size: 13px; color: var(--muted); }
   .arow { display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px; align-items: start; margin: 8px 0; }
   .arow > .alab { font-size: 13px; color: var(--muted); padding-top: 6px; }
   .ahint { font-size: 12px; color: var(--muted); margin-top: 3px; }
@@ -215,33 +225,20 @@
       <span class="status" id="status"></span>
     </div>
     <div class="side">
-      <div class="card about" id="about">
-        <h3>О песне</h3>
-        <div class="arow"><span class="alab">Жанры</span><div><div class="genres" id="genres"></div>
-          <div class="ahint">До трёх. Меняются сразу, без проверки — и у опубликованной песни.</div></div></div>
-        <div class="arow"><label class="alab" for="taginput">Теги</label><div class="tagwrap">
-          <div class="tagbox" id="tagbox"><span id="tagchips" style="display:contents"></span><input id="taginput" maxlength="300" autocomplete="off" placeholder="тег, затем Enter или запятая" aria-label="Новый тег"></div>
-          <div class="tagsug" id="tagsug" hidden role="listbox"></div>
-          <div class="ahint">До 10 тегов, от 2 до 30 символов: о самой песне (жанр, настроение, персонажи). Можно вставить «pony, dance» или «#pony #dance».</div></div></div>
-        <div class="arow"><label class="alab" for="source">Источник</label><div><input id="source" type="url" maxlength="300" placeholder="https://… — ссылка на оригинал песни">
-          <div class="ahint">Необязательно. Посетители перейдут по ней только через страницу-предупреждение.</div></div></div>
-        <div class="arow"><span class="alab">Метки</span><div class="marks">
-          <label class="chk"><input type="checkbox" id="swear"> Есть мат</label>
-          <select id="swearMuch" hidden aria-label="Сколько мата"><option value="1">немного</option><option value="2">больше 20 % текста</option></select>
-          <label class="chk"><input type="checkbox" id="lewd"> Эротический подтекст</label>
-          <span class="agebadge" id="ageBadge"></span>
-          <a href="/rules" target="_blank">Правила песен</a>
-        </div></div>
-        <div class="arow"><span class="alab">Ноты</span><div class="marks">
+      <div class="card" id="notesCard">
+        <h3>Ноты</h3>
+        <div class="marks">
           <label class="chk" title="Снимает запрет ⛔ на ноты ближе 0,25 с (остаётся минимум 0,05 с). Песня с такими нотами на сайте и в игре помечается «Нестандартная»."><input type="checkbox" id="free"> Разрешить ноты ближе 0,25 с</label>
           <span class="nsbadge" id="nsBadge" hidden title="Нестандартная песня: в ней есть ноты ближе 0,25 с друг к другу. Автор сам снял ограничение. Такие ноты идут почти подряд: их легко перепутать, а нажатие чуть раньше времени засчитается предыдущей ноте (другая клавиша — промах). Играть труднее обычного.">Нестандартная</span>
-        </div></div>
+        </div>
       </div>
       <div class="card" id="histCard">
         <h3>История версий</h3>
         <div class="bakbar" id="bakbar" hidden></div>
         <div class="hist" id="hist"></div>
-        <div class="ahint" id="histHint">Каждое сохранение, обрезка и авторасстановка оставляют прежнюю версию здесь. История хранится, пока песня — черновик или снова в правке, и удаляется после публикации. Перед откатом текущая версия тоже попадает в историю.</div>
+        <details class="more"><summary>Подробнее</summary>
+          <p>Каждое сохранение, обрезка и авторасстановка оставляют прежнюю версию здесь. История хранится, пока песня — черновик или снова в правке, и удаляется после публикации. Перед откатом текущая версия тоже попадает в историю.</p>
+        </details>
       </div>
       <div class="card">
         <h3>Live-запись</h3>
@@ -301,6 +298,20 @@
           </div>
         </div>
       </div>
+      <details class="card about" id="about">
+        <summary><h3>О песне <span class="opt">— жанры, теги, источник, метки (необязательно)</span></h3></summary>
+        <div class="arow"><span class="alab">Жанры</span><div><div class="genres" id="genres"></div></div></div>
+        <div class="arow"><label class="alab" for="taginput">Теги</label><div class="tagwrap">
+          <div class="tagbox" id="tagbox"><span id="tagchips" style="display:contents"></span><input id="taginput" maxlength="300" autocomplete="off" placeholder="тег, затем Enter или запятая" aria-label="Новый тег"></div>
+          <div class="tagsug" id="tagsug" hidden role="listbox"></div></div></div>
+        <div class="arow"><label class="alab" for="source">Источник</label><div><input id="source" type="url" maxlength="300" placeholder="https://… — ссылка на оригинал песни"></div></div>
+        <div class="arow"><span class="alab">Метки</span><div class="marks">
+          <label class="chk"><input type="checkbox" id="swear"> Есть мат</label>
+          <select id="swearMuch" hidden aria-label="Сколько мата"><option value="1">немного</option><option value="2">больше 20 % текста</option></select>
+          <label class="chk"><input type="checkbox" id="lewd"> Эротический подтекст</label>
+          <span class="agebadge" id="ageBadge"></span>
+        </div></div>
+      </details>
     </div>
     <details class="card help" id="help">
       <summary>Как править</summary>
@@ -426,6 +437,7 @@ function filtered(msg) {
 function publishPanel() {
   const box = $("pub"); box.textContent = "";
   box.appendChild(el("h3", "Публикация"));
+  { const rl = el("a", "Правила песен"); rl.href = "/rules"; rl.target = "_blank"; rl.className = "rules"; box.appendChild(rl); }
   if (song.status === "draft" && song.meta_only) {
     // a new version of a published song with the same notes and sound: the published mod still fits it
     const names = { title: "название", artist: "исполнитель", cover: "обложка", preview: "фрагмент для прослушивания", tags: "теги", source: "источник", age: "возрастные метки" };

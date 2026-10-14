@@ -169,6 +169,7 @@
     "ноты {n} и {n} ближе {0} с ({1}) — так нельзя": "notes {0} and {1} are closer than {2} s ({3}) — not allowed",
     "ноты {n} и {n} ближе {0} с ({1}) — песня станет «Нестандартной»": "notes {0} and {1} are closer than {2} s ({3}) — the song becomes «Nonstandard»",
     "История версий": "Version history",
+    "— жанры, теги, источник, метки (необязательно)": "— genres, tags, source, marks (optional)",
     "Каждое сохранение, обрезка и авторасстановка оставляют прежнюю версию здесь. История хранится, пока песня — черновик или снова в правке, и удаляется после публикации. Перед откатом текущая версия тоже попадает в историю.": "Every save, trim and automatic placement leaves the previous version here. The history is kept while the song is a draft or being edited again, and is removed after publishing. Before a rollback the current version goes to the history too.",
     "пока пусто": "empty so far",
     "Вернуть": "Restore",
