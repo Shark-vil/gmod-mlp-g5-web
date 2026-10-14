@@ -19,7 +19,7 @@
   .time { font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; font-size: 14px; }
   .lane { position: relative; margin-top: 8px; padding: 0; overflow: hidden; }
   canvas { display: block; width: 100%; height: 270px; touch-action: none; cursor: crosshair; }
-  canvas.erase { cursor: not-allowed; } canvas.cycle { cursor: pointer; } canvas.band { cursor: col-resize; }
+  canvas.erase { cursor: not-allowed; } canvas.grip { cursor: ew-resize; } canvas.cycle { cursor: pointer; } canvas.band { cursor: col-resize; }
   input[type=range].scroll { width: 100%; margin: 6px 0 0; padding: 0; accent-color: var(--pink); }
   .side { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
   .side .card { padding: 10px 12px; }
@@ -60,7 +60,7 @@
   .msg { padding: 16px; color: var(--muted); }
   /* the test: the same lane as in the game */
   .test { position: fixed; inset: 0; background: rgba(15, 6, 28, .92); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 40; color: #fff; }
-  .test canvas { width: min(1100px, 96vw); height: 300px; cursor: default; }
+  .test canvas { width: min(1300px, 96vw); height: 300px; cursor: default; } /* the game's lane: 7.8 times as long as it is high */
   .test .score { font-size: 34px; font-weight: 800; color: #ffd65a; }
   .test .hint { color: #c9b6ef; font-size: 13px; margin-top: 8px; }
   .pub { margin-top: 8px; padding: 12px; }
@@ -154,9 +154,9 @@
             <div class="tools" style="padding:4px 0">
               <button class="btn" id="coverUp">Загрузить свою</button>
               <button class="btn" id="coverDrop">Убрать свою</button>
-              <input type="file" id="coverFile" accept=".jpg,.jpeg,.png,.webp,image/*" hidden>
+              <input type="file" id="coverFile" accept=".jpg,.jpeg,.png,.webp,.gif,image/*" hidden>
             </div>
-            <p>jpg / png / webp до 5 МБ, обрежется в квадрат 512×512. Она же — значок мода в Мастерской.</p>
+            <p>jpg / png / webp / gif до 5 МБ, обрежется в квадрат 512×512. Она же — значок мода в Мастерской (addon.jpg, 512×512, до 1 МБ — сайт подгонит сам).</p>
           </div>
         </div>
       </div>
@@ -195,7 +195,7 @@
           случайная клавиша), <kbd>Q</kbd> — следующее по кругу, <kbd>B</kbd> — Кисть / Правка. Удержание — любая клавиша.</p>
         <p data-i18n="help3"><kbd>Shift</kbd>+клик — добавить / убрать ноту из выбора, <kbd>Shift</kbd>+протянуть — выбрать отрезок,
           <kbd>Ctrl</kbd>+<kbd>A</kbd> — все, <kbd>Esc</kbd> — снять выбор. <kbd>Alt</kbd>+клик (или протянуть) — стереть.
-          <kbd>Ctrl</kbd>+клик по ноте — следующее направление. <kbd>H</kbd> — удержание, <kbd>Delete</kbd> — удалить выбранные.
+          <kbd>Ctrl</kbd>+клик по ноте — следующее направление. <kbd>H</kbd> — удержание (его длину — тяните за конец полосы или <kbd>[</kbd> <kbd>]</kbd>), <kbd>Delete</kbd> — удалить выбранные.
           <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> — сдвинуть выбранные на шаг привязки, <kbd>←</kbd> <kbd>→</kbd> — к соседней ноте.
           <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> — копировать выбранные и вставить с места курсора (повторить
           припев). <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> — отменить / вернуть, <kbd>Ctrl</kbd>+<kbd>S</kbd> —
@@ -214,7 +214,11 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const UUID = location.pathname.split("/").pop();
-const HOLD = 1.94, MIN_GAP = 0.25, GOOD_GAP = 0.43;      // the game: hold length, the hard minimum, the game charts' gap
+const HOLD = 1.94, MIN_GAP = 0.25, GOOD_GAP = 0.43;      // the game: a hold's length (when it has none of its own), the hard minimum, the game charts' gap
+const HOLD_MIN = 0.5, HOLD_MAX = 8;                       // a hold's own length (the chart's "lens"; songs.py checks the same)
+const clampHold = v => Math.max(HOLD_MIN, Math.min(HOLD_MAX, Math.round(v * 1000) / 1000));
+const newHold = () => clampHold(song && song.beat ? song.beat * 4 : HOLD);   // a new hold: four of the song's beats
+const hl = n => (n.len > 0 ? n.len : HOLD);                                 // a hold's length
 const PERFECT = 0.09, GOOD = 0.2, APPROACH = 1.7, TICK = 0.485 / 4;
 let song = null, buf = null, ctx = null, peaks = null;
 let notes = [];                 // [{ t, hold }]
@@ -252,9 +256,7 @@ async function load() {
   ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
   buf = await ctx.decodeAudioData(audio);
   peaks = buildPeaks(buf);
-  const ch = song.chart || { t: [], large: [] };
-  const L = new Set(ch.large);
-  notes = ch.t.map((t, i) => ({ t, hold: L.has(i + 1), key: (ch.keys && ch.keys[i]) || "" }));
+  notes = chartNotes(song.chart);
   showTrim(); showCover();
   $("title").value = song.title; $("artist").value = song.artist || "";
   $("pstart").value = song.preview_start || 0; $("plen").value = String(Math.round(song.preview_len || 20));
@@ -292,13 +294,17 @@ function publishPanel() {
     ol.appendChild(el("li", "Проверьте у себя: распакуйте папку из архива в garrysmod/addons/ — песня появится в голосовании в лобби танца."));
     const li3 = el("li");
     if (song.wsid) {
-      li3.append("Обновите уже выложенный мод (папка garrysmod/bin): ");
+      li3.append("Обновите уже выложенный мод — в ");
+      const gp = el("a", "gmpublisher"); gp.href = "https://github.com/WilliamVenner/gmpublisher"; gp.target = "_blank"; gp.rel = "noopener"; li3.appendChild(gp);
+      li3.append(" (кнопка обновления у вашего мода) или командами (папка garrysmod/bin): ");
       li3.appendChild(el("code", 'gmad.exe create -folder "<папка>" -out "<папка>.gma"')); li3.append(" и ");
       li3.appendChild(el("code", 'gmpublish.exe update -addon "<папка>.gma" -id ' + song.wsid)); li3.append(" (подробно — в README.txt в архиве).");
     } else {
-      li3.append("Выложите в Мастерскую (папка garrysmod/bin): ");
+      li3.append("Выложите в Мастерскую. Проще всего — программой ");
+      const gp = el("a", "gmpublisher"); gp.href = "https://github.com/WilliamVenner/gmpublisher"; gp.target = "_blank"; gp.rel = "noopener"; li3.appendChild(gp);
+      li3.append(": выберите распакованную папку, значок addon.jpg она возьмёт сама. Или командами (папка garrysmod/bin): ");
       li3.appendChild(el("code", 'gmad.exe create -folder "<папка>" -out "<папка>.gma"')); li3.append(" и ");
-      li3.appendChild(el("code", 'gmpublish.exe create -addon "<папка>.gma" -icon "<папка>/icon.jpg"')); li3.append(" (подробно — в README.txt в архиве).");
+      li3.appendChild(el("code", 'gmpublish.exe create -addon "<папка>.gma" -icon "<папка>/addon.jpg"')); li3.append(" (подробно — в README.txt в архиве).");
     }
     ol.appendChild(li3);
     ol.appendChild(el("li", "Вставьте ссылку на мод ниже и отправьте на проверку. Не меняйте файлы мода — игра сверяет их с сайтом."));
@@ -483,9 +489,15 @@ function draw() {
     return Math.max(4, Math.min(Rg, Math.min(l, r) * zoom / 2 - 1));
   };
   notes.forEach((n, i) => {
-    const x = X(n.t); if (x < -HOLD * zoom - 20 || x > W + 20) return;
+    const x = X(n.t); if (x < -HOLD_MAX * zoom - 20 || x > W + 20) return;
     const R = radius(i);
-    if (n.hold) { g.fillStyle = C.pink; g.globalAlpha = 0.35; g.beginPath(); g.roundRect(x, ny - R * 0.8, HOLD * zoom, R * 1.6, R * 0.8); g.fill(); g.globalAlpha = 1; }
+    if (n.hold) {
+      const L = hl(n) * zoom, gh = Math.max(14, R * 1.6);
+      g.fillStyle = C.pink; g.globalAlpha = 0.35; g.beginPath(); g.roundRect(x, ny - R * 0.8, L, R * 1.6, R * 0.8); g.fill(); g.globalAlpha = 1;
+      // the grip at the end: drag it to change the length
+      g.fillStyle = picked.has(n) ? C.text : C.pink; g.beginPath(); g.roundRect(x + L - 4, ny - gh / 2, 8, gh, 4); g.fill();
+      if (L > 70 && zoom >= 60) { g.fillStyle = C.muted; g.font = "11px system-ui"; g.textAlign = "center"; g.fillText(hl(n).toFixed(2).replace(/0$/, "") + (window.mlpLang && mlpLang() === "en" ? " s" : " с"), x + L / 2 + R / 2, ny - R - 6); }
+    }
     noteSign(x, ny, R, n.hold ? "hold" : n.key, C, picked.has(n), i === sel);
   });
   if (band) { const a = X(Math.min(band.a, band.b)), b = X(Math.max(band.a, band.b)); g.fillStyle = C.lilac; g.globalAlpha = 0.18; g.fillRect(a, wh, b - a, H - wh); g.globalAlpha = 1; }
@@ -496,7 +508,7 @@ function draw() {
   // the notes being recorded right now (ringed, on top)
   (window._recPreview || []).forEach(n => {
     const x = X(n.t); if (x < -20 || x > W + 20) return;
-    if (n.hold) { g.fillStyle = C.pink; g.globalAlpha = 0.35; g.beginPath(); g.roundRect(x, ny - 9, HOLD * zoom, 18, 9); g.fill(); g.globalAlpha = 1; }
+    if (n.hold) { g.fillStyle = C.pink; g.globalAlpha = 0.35; g.beginPath(); g.roundRect(x, ny - 9, hl(n) * zoom, 18, 9); g.fill(); g.globalAlpha = 1; }
     noteSign(x, ny, 12, n.hold ? "hold" : n.key, C, false, false);
     g.strokeStyle = "#e8323c"; g.lineWidth = 2.5; g.beginPath(); g.arc(x, ny, 16, 0, Math.PI * 2); g.stroke();
   });
@@ -536,6 +548,15 @@ function noteAt(x, y) {
   if (y < wh) return -1;
   let best = -1, bd = Math.max(12, Math.min(18, zoom * GOOD_GAP / 2));
   notes.forEach((n, i) => { const d = Math.abs(X(n.t) - x); if (d < bd && Math.abs(y - ny) < 30) { bd = d; best = i; } });
+  if (best < 0 && Math.abs(y - ny) < 22) notes.forEach((n, i) => { if (n.hold && x > X(n.t) && x < X(n.t + hl(n))) best = i; });   // on a hold's bar
+  return best;
+}
+// the grip at a hold's end (drag = its length)
+function gripAt(x, y) {
+  const H = cv.clientHeight, wh = H * WAVE_H, ny = wh + (H - wh) / 2;
+  if (y < wh || Math.abs(y - ny) > 26) return -1;
+  let best = -1, bd = 9;
+  notes.forEach((n, i) => { if (!n.hold) return; const d = Math.abs(X(n.t + hl(n)) - x); if (d < bd) { bd = d; best = i; } });
   return best;
 }
 let drag = null, erased = false;
@@ -547,7 +568,7 @@ function lanePos(e) { const r = cv.getBoundingClientRect(); return { x: e.client
 function modCursor(e) {           // the lane's cursor tells what a click with this key does
   if (!hover) return;
   hover.mod = e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
-  cv.className = e.altKey ? "erase" : (e.ctrlKey || e.metaKey) ? "cycle" : e.shiftKey ? "band" : "";
+  cv.className = e.altKey ? "erase" : (e.ctrlKey || e.metaKey) ? "cycle" : e.shiftKey ? "band" : (gripAt(hover.x, hover.y) >= 0 ? "grip" : "");
 }
 cv.addEventListener("pointerdown", e => {
   const { x, y } = lanePos(e);
@@ -558,6 +579,8 @@ cv.addEventListener("pointerdown", e => {
   }
   if (locked()) return;
   cv.setPointerCapture(e.pointerId);
+  const gi = !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey ? gripAt(x, y) : -1;
+  if (gi >= 0) { const n = notes[gi]; pick(gi); snapshot(); drag = { resize: n, len0: hl(n), moved: false }; draw(); showKeys(); return; }
   const i = noteAt(x, y);
   if (e.altKey) { e.preventDefault(); snapshot(); erased = false; drag = { erase: true }; eraseAt(x, y); return; }   // the eraser
   if ((e.ctrlKey || e.metaKey) && i >= 0) {     // the next direction: this note (and the picked ones with it)
@@ -598,6 +621,14 @@ cv.addEventListener("pointermove", e => {
     sel = notes.findIndex(n => picked.has(n)); draw(); showKeys(); return;
   }
   if (drag && drag.erase) { eraseAt(x, y); return; }
+  if (drag && drag.resize) {
+    const n = drag.resize, i = notes.indexOf(n), next = notes[i + 1];
+    let len = clampHold(snapT(T(x)) - n.t);
+    if (next) len = Math.min(len, Math.max(HOLD_MIN, next.t - n.t - 0.06));   // not into the next note
+    len = Math.min(len, Math.max(HOLD_MIN, song.len - n.t));
+    if (len !== n.len) { n.len = len; drag.moved = true; setStatus(`удержание: ${len.toFixed(2)} с`); }
+    draw(); return;
+  }
   if (drag) {
     const dt = snapT(T(x)) - drag.t0;
     for (const [m, t] of drag.from) m.t = Math.max(0, Math.min(song.len, Math.round((t + dt) * 1000) / 1000));
@@ -610,6 +641,7 @@ cv.addEventListener("pointerup", () => {
   if (band) { band = null; draw(); setStatus(picked.size ? `выбрано нот: ${picked.size}` : ""); return; }
   if (!drag) return;
   if (drag.erase) { if (erased) mark(); else undo.pop(); drag = null; return; }
+  if (drag.resize) { if (drag.moved) mark(); else undo.pop(); drag = null; return; }
   if (drag.moved) { notes.sort((a, b) => a.t - b.t); sel = notes.indexOf(drag.n); mark(); } else undo.pop();
   drag = null;
 });
@@ -642,7 +674,7 @@ function fillNotes() {
     for (let i = 0; i < bs.length - 1; i++) { const st = (bs[i + 1] - bs[i]) / div; for (let k = 0; k < div; k++) pts.push(bs[i] + k * st); }
     pts.push(bs[bs.length - 1]);
   } else { const st = (song.beat || 0.5) / div; for (let t = a; t <= b + 1e-6; t += st) pts.push(t); }
-  const blocked = t => notes.some(n => Math.abs(n.t - t) < MIN_GAP || (n.hold && t > n.t && t < n.t + HOLD + 0.05));
+  const blocked = t => notes.some(n => Math.abs(n.t - t) < MIN_GAP || (n.hold && t > n.t && t < n.t + hl(n) + 0.05));
   const add = [];
   pts.forEach(t => { t = Math.round(t * 1000) / 1000; if (t > a + 0.001 && t < b - 0.001 && !blocked(t) && !add.some(m => Math.abs(m.t - t) < MIN_GAP)) add.push({ t, hold: false, key: keyMode === "brush" ? brush : "" }); });
   if (!add.length) { setStatus("свободных мест на сетке между ними нет"); return; }
@@ -700,7 +732,7 @@ $("mBrush").classList.toggle("on", keyMode === "brush"); $("mEdit").classList.to
 
 function toggleHold() {
   if (!picked.size || locked()) return;
-  snapshot(); const on = !selNotes().every(n => n.hold); selNotes().forEach(n => n.hold = on); mark();
+  snapshot(); const on = !selNotes().every(n => n.hold); selNotes().forEach(n => { n.hold = on; if (on && !(n.len > 0)) n.len = newHold(); }); mark();
 }
 function delNote() {
   if (!picked.size || locked()) return;
@@ -714,14 +746,22 @@ function nudge(dir) {                          // the picked notes one snap step
   snapshot(); selNotes().forEach(n => n.t = Math.max(0, Math.min(song.len, Math.round((n.t + dir * step) * 1000) / 1000)));
   const m = notes[sel]; notes.sort((a, b) => a.t - b.t); sel = notes.indexOf(m); if (m) window._pos = m.t; mark();
 }
+function holdLen(dir) {                       // the picked holds one snap step (0.1 s without snapping) shorter / longer
+  const hs = selNotes().filter(n => n.hold);
+  if (!hs.length || locked()) { if (!locked()) setStatus("выберите удержание"); return; }
+  const div = +$("snap").value, step = div && song.beat ? song.beat / div : 0.1;
+  snapshot();
+  hs.forEach(n => { const i = notes.indexOf(n), next = notes[i + 1]; let len = clampHold(hl(n) + dir * step); if (next) len = Math.min(len, Math.max(HOLD_MIN, next.t - n.t - 0.06)); n.len = Math.min(len, Math.max(HOLD_MIN, song.len - n.t)); });
+  mark(); setStatus(hs.length === 1 ? `удержание: ${hl(hs[0]).toFixed(2)} с` : `удержаний изменено: ${hs.length}`);
+}
 function copyNotes() {
   const ns = selNotes(); if (!ns.length) return;
-  const t0 = ns[0].t; clip = ns.map(n => ({ t: n.t - t0, hold: n.hold, key: n.key }));
+  const t0 = ns[0].t; clip = ns.map(n => ({ t: n.t - t0, hold: n.hold, key: n.key, len: n.len }));
   setStatus(`скопировано нот: ${clip.length} — Ctrl+V вставит их с места курсора`);
 }
 function pasteNotes() {
   if (!clip.length || locked()) return;
-  const at = snapT(now()), add = clip.map(c => ({ t: Math.round((at + c.t) * 1000) / 1000, hold: c.hold, key: c.key })).filter(n => n.t <= song.len);
+  const at = snapT(now()), add = clip.map(c => ({ t: Math.round((at + c.t) * 1000) / 1000, hold: c.hold, key: c.key, len: c.len })).filter(n => n.t <= song.len);
   if (!add.length) return;
   snapshot();
   notes = notes.filter(n => !add.some(m => Math.abs(m.t - n.t) < MIN_GAP)).concat(add).sort((a, b) => a.t - b.t);
@@ -746,6 +786,7 @@ document.addEventListener("keydown", e => {
   else if (e.key === "Escape") { pick(-1); draw(); showKeys(); }
   else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); delNote(); }
   else if (c === "KeyH") toggleHold();
+  else if (c === "BracketLeft" || c === "BracketRight") holdLen(c === "BracketLeft" ? -1 : 1);
   else if (c === "KeyQ") cycleKey();
   else if (c === "KeyB") setMode(keyMode === "brush" ? "edit" : "brush");
   else if (c === "KeyX") mirrorNotes();
@@ -775,7 +816,7 @@ function problems() {
     const d = notes[i].t - notes[i - 1].t;
     if (d < MIN_GAP) out.push({ i, hard: true, text: `ноты ${i} и ${i + 1} ближе ${MIN_GAP} с (${mmss(notes[i].t, true)}) — так нельзя` });
     else if (d < GOOD_GAP) out.push({ i, hard: false, text: `ноты ${i} и ${i + 1} очень близко (${mmss(notes[i].t, true)}) — трудно попасть` });
-    if (notes[i - 1].hold && d < HOLD + 0.05) out.push({ i, hard: true, text: `нота ${i + 1} внутри удержания (${mmss(notes[i].t, true)})` });
+    if (notes[i - 1].hold && d < hl(notes[i - 1]) + 0.05) out.push({ i, hard: true, text: `нота ${i + 1} внутри удержания (${mmss(notes[i].t, true)})` });
   }
   return out;
 }
@@ -820,7 +861,7 @@ function recKeyUp(e) {
   const hold = recTime() - d.t >= HOLD_PRESS;
   const t = snapT(d.t);
   if (t < 0 || t > song.len) return;
-  rec.notes.push({ t, key: hold ? "" : d.key, hold });
+  rec.notes.push({ t, key: hold ? "" : d.key, hold, len: hold ? clampHold(Math.min(snapT(recTime()), song.len) - t) : 0 });
   $("recCount").textContent = rec.notes.length + " нот";
   // show it at once
   window._recPreview = rec.notes; draw();
@@ -832,12 +873,12 @@ function recStop() {
   stop();
   $("rec").classList.remove("on"); $("recbar").classList.remove("on");
   window._recPreview = null;
-  // in time order; a press inside a recorded hold (the game's hold lasts its 4 beats) or too close to the note
+  // in time order; a press inside a recorded hold (as long as the key was held) or too close to the note
   // before it (one press, not two) is dropped
   const keep = [];
   r.notes.sort((x, y) => x.t - y.t).forEach(n => {
     const last = keep[keep.length - 1];
-    if (last && (n.t - last.t < MIN_GAP || (last.hold && n.t - last.t < HOLD + 0.05))) return;
+    if (last && (n.t - last.t < MIN_GAP || (last.hold && n.t - last.t < hl(last) + 0.05))) return;
     keep.push(n);
   });
   r.notes = keep;
@@ -887,15 +928,18 @@ function showTrim() {
 // the position on the lane is in the trimmed song: the source time is that + the current trim start
 $("tsHere").onclick = () => { $("tstart").value = ((song.trim_start || 0) + now()).toFixed(1); };
 $("teHere").onclick = () => { $("tend").value = ((song.trim_start || 0) + now()).toFixed(1); };
+// a long server job: the editor is hidden (nothing to click by mistake) with a note in its place, like the first load
+function busy(text) { stop(); $("ed").hidden = true; $("out").hidden = false; $("out").textContent = text; }
+function unbusy() { $("out").hidden = true; $("ed").hidden = false; resize(); }
 async function doTrim(start, end) {
   if (locked()) return;
   if (dirty && !(await save())) return;
-  setStatus("обрезается…"); stop();
-  const r = await fetch("/api/v1/songs/" + UUID + "/trim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ start, end }) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) { setStatus("не обрезалось: " + (j.detail || r.status)); return; }
+  busy("Песня обрезается… (несколько секунд)");
+  const r = await fetch("/api/v1/songs/" + UUID + "/trim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ start, end }) }).catch(() => null);
+  const j = r ? await r.json().catch(() => ({})) : {};
+  if (!r || !r.ok) { unbusy(); setStatus("не обрезалось: " + (j.detail || (r ? r.status : "нет связи"))); return; }
   undo = []; redo = []; pick(-1); window._pos = 0;
-  $("ed").hidden = true; $("out").hidden = false; $("out").textContent = "Загружается обрезанная песня…";
+  $("out").textContent = "Загружается обрезанная песня…";
   await load();
   setStatus(`обрезано — осталось ${j.notes} нот`);
 }
@@ -907,10 +951,15 @@ $("trim").onclick = () => {
 $("untrim").onclick = () => { if (confirm(tx("Вернуть всю песню? Ноты останутся на своих местах."))) doTrim(0, null); };
 
 // ------------------------------------------------------------------ save, automatic chart
+function chartNotes(ch) {
+  ch = ch || { t: [], large: [] };
+  const L = new Set(ch.large);
+  return ch.t.map((t, i) => ({ t, hold: L.has(i + 1), key: (ch.keys && ch.keys[i]) || "", len: L.has(i + 1) ? ((ch.lens && ch.lens[i]) || HOLD) : 0 }));
+}
 async function save() {
   if (problems().some(p => p.hard)) { setStatus("исправьте отмеченные ⛔ ноты"); return false; }
   setStatus("сохраняется…");
-  const body = { t: notes.map(n => n.t), large: notes.map((n, i) => n.hold ? i + 1 : 0).filter(Boolean), keys: notes.map(n => n.hold ? "" : (n.key || "")),
+  const body = { t: notes.map(n => n.t), large: notes.map((n, i) => n.hold ? i + 1 : 0).filter(Boolean), keys: notes.map(n => n.hold ? "" : (n.key || "")), lens: notes.map(n => n.hold ? hl(n) : 0),
     preview_start: +$("pstart").value, preview_len: +$("plen").value, title: $("title").value, artist: $("artist").value };
   const r = await fetch("/api/v1/songs/" + UUID + "/chart", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (r.ok) { dirty = false; setStatus("сохранено"); return true; }
@@ -927,14 +976,16 @@ $("clear").onclick = () => {
 $("auto").onclick = async () => {
   if (!confirm(tx(notes.length ? "Расставить ноты автоматически? Текущие ноты заменятся (их можно вернуть «Отменить»)." : "Расставить ноты автоматически?"))) return;
   snapshot();
-  setStatus("расставляется…");
-  await fetch("/api/v1/songs/" + UUID + "/auto", { method: "POST" });
+  busy("Ноты расставляются автоматически… (до минуты, страница вернётся сама)");
+  const r0 = await fetch("/api/v1/songs/" + UUID + "/auto", { method: "POST" }).catch(() => null);
+  if (!r0 || !r0.ok) { undo.pop(); unbusy(); setStatus("не получилось: " + (r0 ? r0.status : "нет связи")); return; }
   for (;;) {
     await new Promise(r => setTimeout(r, 1500));
-    const s = await (await fetch("/api/v1/songs/" + UUID)).json();
+    const s = await (await fetch("/api/v1/songs/" + UUID)).json().catch(() => ({}));
     if (s.analysis === "done" || s.analysis === "failed") {
-      if (s.analysis === "failed") { setStatus("не получилось: " + (s.analysis_error || "")); return; }
-      const L = new Set(s.chart.large); notes = s.chart.t.map((t, i) => ({ t, hold: L.has(i + 1), key: (s.chart.keys && s.chart.keys[i]) || "" })); pick(-1); mark(); return;
+      unbusy();
+      if (s.analysis === "failed") { undo.pop(); setStatus("не получилось: " + (s.analysis_error || "")); return; }
+      notes = chartNotes(s.chart); pick(-1); mark(); setStatus(`расставлено нот: ${notes.length} — проверьте и сохраните`); return;
     }
   }
 };
@@ -946,7 +997,7 @@ const COL = { up: "#288cff", down: "#1ebe5a", left: "#ff8c00", right: "#eb3282",
 function gameNotes(seed) {                    // like sh_mg_dance.lua D.NotesFrom: the author's key, else random (holds: any key)
   let r = seed;
   const rnd = n => { r = (r * 1103515245 + 12345) % 2147483648; return Math.floor(r / 65536) % n + 1; };
-  return notes.map(n => ({ t: n.t, key: n.hold ? "any" : (n.key || KEYS[rnd(KEYS.length) - 1]), large: n.hold }));
+  return notes.map(n => ({ t: n.t, key: n.hold ? "any" : (n.key || KEYS[rnd(KEYS.length) - 1]), large: n.hold, len: n.hold ? hl(n) : 0 }));
 }
 function points(combo, perfect) { if (combo >= 6) return [perfect ? 9 : 5, "СУПЕР!"]; if (combo >= 3) return [perfect ? 7 : 3, "КРУТО!"]; return [perfect ? 5 : 1, "ХОРОШО"]; }
 $("test").onclick = () => {
@@ -997,7 +1048,7 @@ $("test").onclick = () => {
   }
   function frame() {
     if (!alive) return;
-    const t = st(), W = tc.clientWidth, H = tc.clientHeight, hy = H / 2, hx = 110, span = W - 160;
+    const t = st(), W = tc.clientWidth, H = tc.clientHeight, hy = H / 2, hx = 110, span = Math.min(W - 130, 1170); // the notes travel the game's lane (cl_mg_dance.lua: lane − 130, 150 high)
     tg.clearRect(0, 0, W, H);
     tg.fillStyle = "rgba(40,20,60,.85)"; tg.beginPath(); tg.roundRect(20, hy - 75, W - 40, 150, 75); tg.fill();
     tg.fillStyle = "#1e0f2d"; tg.beginPath(); tg.arc(hx, hy, 57, 0, Math.PI * 2); tg.fill();
@@ -1008,14 +1059,14 @@ $("test").onclick = () => {
       const n = ns[i], dt = n.t - t;
       if (n.large) {
         const h = hold[i] || (hold[i] = { ticks: 0, last: -1 });
-        if (!judged[i] && t >= n.t - GOOD && t <= n.t + HOLD && anyHeld && t - h.last >= TICK) { h.last = t; h.ticks++; }
-        if (!judged[i] && t > n.t + HOLD) { judged[i] = "hold"; score += h.ticks; if (h.ticks) { word = "БОНУС +" + h.ticks; wordT = t; } sc.textContent = score; }
+        if (!judged[i] && t >= n.t - GOOD && t <= n.t + n.len && anyHeld && t - h.last >= TICK) { h.last = t; h.ticks++; }
+        if (!judged[i] && t > n.t + n.len) { judged[i] = "hold"; score += h.ticks; if (h.ticks) { word = "БОНУС +" + h.ticks; wordT = t; } sc.textContent = score; }
       } else if (!judged[i] && t > n.t + GOOD) judge(i, "miss");
-      if (dt > APPROACH || dt < -(n.large ? HOLD : 0) - 0.4) continue;
+      if (dt > APPROACH || dt < -(n.large ? n.len : 0) - 0.4) continue;
       if (judged[i] && judged[i] !== "miss" && judged[i] !== "hold") continue; // hit (or skipped): gone
       const x = hx + dt / APPROACH * span;
       if (n.large) {
-        const x2 = hx + (dt + HOLD) / APPROACH * span, xa = Math.max(x, hx);
+        const x2 = hx + (dt + n.len) / APPROACH * span, xa = Math.max(x, hx);
         if (x2 > xa) { tg.fillStyle = "rgba(255,214,90,.7)"; tg.beginPath(); tg.roundRect(xa - 40, hy - 40, x2 - xa + 80, 80, 40); tg.fill(); }
         continue;
       }

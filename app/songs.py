@@ -20,7 +20,7 @@ Titles / artists with a word of the admins' BAN_WORDS list are hidden from the p
   GET    /api/v1/songs/{uuid}           the song: published copy for everybody, working copy + beat grid for the author / admins
   GET    /api/v1/songs/{uuid}/full.ogg  the full track (author / admins)
   GET    /api/v1/songs/{uuid}/preview.ogg   the published fragment (?work=1: the working one, author / admins)
-  PUT    /api/v1/songs/{uuid}/chart     the editor's save (author, draft): notes, holds, keys, preview fragment, title
+  PUT    /api/v1/songs/{uuid}/chart     the editor's save (author, draft): notes, holds (+ "lens": seconds per note), keys, preview, title
   POST   /api/v1/songs/{uuid}/trim      { start, end } cut the song out of the uploaded source (author, draft); the notes move with it
   GET    /api/v1/songs/{uuid}/cover.jpg the published cover (?work=1: the working one), or the default picture
   POST   /api/v1/songs/{uuid}/cover     multipart image: the author's own cover (512x512 jpg); DELETE: back to the file's own / none
@@ -68,7 +68,14 @@ PREVIEW_LEN = 20
 EXTS = {".mp3", ".ogg", ".wav", ".flac", ".m4a", ".opus"}
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 SITE = os.environ.get("MLP_PUBLIC_URL", "").rstrip("/")
-HOLD_LEN = 1.94      # a hold lasts 4 of the game's beats (sh_mg_dance.lua D.HOLD)
+HOLD_LEN = 1.94      # a hold with no length of its own lasts 4 of the game's beats (sh_mg_dance.lua D.HOLD)
+HOLD_MIN, HOLD_MAX = 0.5, 8.0  # a hold's own length (the chart's "lens": seconds per note, 0 for a tap)
+
+
+def hold_len(lens, i):
+    """the length of the hold at index i (0-based) of a chart"""
+    v = lens[i] if lens and i < len(lens) else 0
+    return v if v and v > 0 else HOLD_LEN
 MIN_NOTE_GAP = 0.25  # closer, one press would count for two notes (the GOOD window is ±0.2 s)
 
 router = APIRouter()
@@ -78,7 +85,8 @@ _work = threading.Semaphore(1)  # one analysis at a time (librosa is heavy)
 
 KEYS = ("", "up", "down", "left", "right", "act")  # a note's key: "" = random (a new one every game), like the game's own
 TRIM_FADE = 0.4  # seconds of fade at a cut edge (no click)
-COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}  # a gif: its first frame
+ICON_MAX = 1024 * 1024  # the Workshop icon (addon.jpg): 512x512, at most 1 MB
 COVER_MAX_MB = 5
 DEFAULT_COVER = os.path.join(os.path.dirname(__file__), "static", "song_icon.jpg")
 LIVE_COLS = {"trim_start": "REAL DEFAULT 0", "trim_end": "REAL", "src_len": "REAL", "live_title": "TEXT", "live_artist": "TEXT", "live_chart": "TEXT", "live_hashes": "TEXT", "live_wsid": "TEXT",
@@ -141,6 +149,20 @@ def to_cover(src, out, stream=None):
         if os.path.exists(out):
             os.remove(out)
         return False
+
+
+def addon_icon(src):
+    """the mod's Workshop icon: a 512x512 jpg of at most 1 MB (the Steam / gmpublish rules), from any cover"""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        out = os.path.join(d, "addon.jpg")
+        for q in (3, 6, 10, 16, 24, 31):  # the jpg quality steps down until it fits
+            _ffmpeg(["-i", src, "-frames:v", "1", "-vf", "scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
+                     "-q:v", str(q), out])
+            if os.path.getsize(out) <= ICON_MAX:
+                with open(out, "rb") as f:
+                    return f.read()
+    raise RuntimeError("the icon doesn't fit in 1 MB")
 
 
 def cover_path(u, live=False):
@@ -398,31 +420,38 @@ def upload(request: Request, file: UploadFile = File(...), title: str = Form(...
     return {"uuid": u}
 
 
-def check_chart(times, large, length, keys=None, allow_empty=False):
-    """sorted notes + their holds + their keys ("" = random), or HTTPException with what's wrong
-    (a draft may be saved with no notes; a mod needs at least one)"""
+def check_chart(times, large, length, keys=None, allow_empty=False, lens=None):
+    """sorted notes + their holds + their keys ("" = random) + the holds' lengths (0 for a tap), or HTTPException
+    with what's wrong (a draft may be saved with no notes; a mod needs at least one)"""
     if allow_empty and not times:
-        return [], set(), []
+        return [], set(), [], []
     if not times or len(times) > 3000:
         raise HTTPException(400, "1-3000 notes")
     keys = list(keys or [])
     if keys and len(keys) != len(times):
         raise HTTPException(400, "one key per note")
+    lens = [round(float(x or 0), 3) for x in (lens or [])]
+    if lens and len(lens) != len(times):
+        raise HTTPException(400, "one length per note")
     if any(k not in KEYS for k in keys):
         raise HTTPException(400, "keys: up, down, left, right, act or empty (random)")
     order = sorted(range(len(times)), key=lambda i: times[i])
     large = {order.index(i - 1) + 1 for i in large if 1 <= i <= len(times)}  # the holds follow their notes when sorted
     keys = [keys[i] for i in order] if keys else []
+    lens = [lens[i] for i in order] if lens else []
     times = [times[i] for i in order]
+    lens = [(min(HOLD_MAX, max(HOLD_MIN, hold_len(lens, i))) if (i + 1) in large else 0) for i in range(len(times))]
     for i, t in enumerate(times):
         if t < 0 or t > length:
             raise HTTPException(400, f"note {i + 1} is outside the song")
         if i and t - times[i - 1] < MIN_NOTE_GAP:
             raise HTTPException(400, f"notes {i} and {i + 1} are closer than {MIN_NOTE_GAP} s")
-        if (i + 1) in large and i + 1 < len(times) and times[i + 1] - t < HOLD_LEN + 0.05:
+        if (i + 1) in large and i + 1 < len(times) and times[i + 1] - t < lens[i] + 0.05:
             raise HTTPException(400, f"note {i + 2} starts inside the hold {i + 1}")
+        if (i + 1) in large and t + lens[i] > length + 0.01:
+            raise HTTPException(400, f"the hold {i + 1} goes past the song's end")
     keys = [("" if (i + 1) in large else k) for i, k in enumerate(keys)]  # a hold takes any key
-    return times, large, (keys if any(keys) else [])
+    return times, large, (keys if any(keys) else []), (lens if large else [])
 
 
 def _author_draft(request, r):
@@ -440,10 +469,11 @@ async def save_chart(u: str, request: Request):
         times = [round(float(x), 3) for x in body.get("t", [])]
         large = {int(i) for i in body.get("large", [])}
         keys = [str(k or "") for k in body.get("keys", [])]
+        lens = [float(x or 0) for x in body.get("lens", [])]
     except Exception:
         raise HTTPException(400, "bad chart")
     length = r["len"] or 0
-    times, large, keys = check_chart(times, large, length, keys, allow_empty=True)
+    times, large, keys, lens = check_chart(times, large, length, keys, allow_empty=True, lens=lens)
     ps = round(float(body.get("preview_start", r["preview_start"] or 0)), 2)
     pl = round(float(body.get("preview_len", r["preview_len"] or PREVIEW_LEN)), 2)
     if not 10 <= pl <= 30 or ps < 0 or ps + pl > length + 0.01:
@@ -453,6 +483,8 @@ async def save_chart(u: str, request: Request):
     chart = {"t": times, "large": sorted(large)}
     if keys:
         chart["keys"] = keys
+    if lens:
+        chart["lens"] = lens
     if (ps, pl) != (r["preview_start"], r["preview_len"]) and os.path.exists(os.path.join(song_dir(u), "full.ogg")):
         make_preview(u, ps, pl)
     with _db() as con:
@@ -492,15 +524,16 @@ async def trim(u: str, request: Request):
     new_len = round(_ffprobe_len(full) or (end - start), 2)
     shift = (r["trim_start"] or 0) - start          # old song time -> new song time
     chart = json.loads(r["chart"]) if r["chart"] else {"t": [], "large": []}
-    L, keys = set(chart.get("large", [])), chart.get("keys") or []
-    nt, nl, nk = [], [], []
+    L, keys, lens = set(chart.get("large", [])), chart.get("keys") or [], chart.get("lens") or []
+    nt, nl, nk, nn = [], [], [], []
     for i, t in enumerate(chart.get("t", [])):
         t2 = round(t + shift, 3)
-        if 0 <= t2 <= new_len - (HOLD_LEN if (i + 1) in L else 0):
+        if 0 <= t2 <= new_len - (hold_len(lens, i) if (i + 1) in L else 0):
             nt.append(t2)
             if (i + 1) in L:
                 nl.append(len(nt))
             nk.append(keys[i] if i < len(keys) else "")
+            nn.append(hold_len(lens, i) if (i + 1) in L else 0)
     # the beat grid: the known beats moved, the rest of the new piece filled in by the song's tempo
     # (a piece made longer again would have no grid where beats were cut off before)
     old_beats = [b + shift for b in (json.loads(r["beats"]) if r["beats"] else [])]
@@ -519,6 +552,8 @@ async def trim(u: str, request: Request):
     chart = {"t": nt, "large": nl}
     if any(nk):
         chart["keys"] = nk
+    if nl:
+        chart["lens"] = nn
     ps = min(max(0.0, (r["preview_start"] or 0) + shift), max(0.0, new_len - (r["preview_len"] or PREVIEW_LEN)))
     pl = min(r["preview_len"] or PREVIEW_LEN, new_len)
     make_preview(u, ps, pl)
@@ -624,7 +659,8 @@ def mod_files(r):
     chart = json.loads(r["chart"])
     data = {"format": 1, "uuid": u, "title": r["title"], "artist": r["artist"] or "", "author": r["owner"],
             "file": f"sound/mlp_g5/songs/{u}.ogg", "len": r["len"], "beat": r["beat"] or 0.5,
-            "charts": [{"t": chart["t"], "large": chart["large"], **({"keys": chart["keys"]} if chart.get("keys") else {})}]}
+            "charts": [{"t": chart["t"], "large": chart["large"], **({"keys": chart["keys"]} if chart.get("keys") else {}),
+                        **({"lens": chart["lens"]} if chart.get("lens") else {})}]}
     if SITE:
         data["site"] = f"{SITE}/songs/{u}"
     js = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
@@ -641,16 +677,17 @@ def mod_files(r):
 
 def addon_json(r):
     return json.dumps({"title": f"MLP Dance song: {r['title']}"[:120], "type": "servercontent", "tags": ["fun", "cartoon"],
-                       "ignore": ["README.txt", "icon.jpg"]}, ensure_ascii=False, indent=2)
+                       "ignore": ["README.txt", "addon.jpg"]}, ensure_ascii=False, indent=2)
 
 
 README = """Песня для мини-игры «Танец» мода My Little Pony: Maretime Bay (Garry's Mod)
 
 1. Проверить у себя: распакуйте папку {folder} в garrysmod/addons/ и запустите режим — песня появится
    в голосовании в лобби танца.
-2. Выложить в Мастерскую (папка garrysmod/bin):
+2. Выложить в Мастерскую. Проще всего — программой gmpublisher (https://github.com/WilliamVenner/gmpublisher):
+   выберите папку {folder}, значок addon.jpg она возьмёт сама. Или командами (папка garrysmod/bin):
      gmad.exe create -folder "<путь>/{folder}" -out "<путь>/{folder}.gma"
-     gmpublish.exe create -addon "<путь>/{folder}.gma" -icon "<путь>/{folder}/icon.jpg"
+     gmpublish.exe create -addon "<путь>/{folder}.gma" -icon "<путь>/{folder}/addon.jpg"
    Новая версия той же песни — обновите уже выложенный мод:
      gmpublish.exe update -addon "<путь>/{folder}.gma" -id <номер мода>
    (или любым инструментом публикации аддонов GMod). Название и описание можно поменять в Мастерской.
@@ -661,9 +698,10 @@ A song for the «Dance» minigame of the My Little Pony: Maretime Bay mod (Garry
 
 1. Test it yourself: unpack the {folder} folder into garrysmod/addons/ and start the gamemode — the song appears
    in the dance lobby's vote.
-2. Publish it to the Workshop (the garrysmod/bin folder):
+2. Publish it to the Workshop. The easiest way is gmpublisher (https://github.com/WilliamVenner/gmpublisher):
+   pick the {folder} folder, it takes the addon.jpg icon by itself. Or with the commands (the garrysmod/bin folder):
      gmad.exe create -folder "<path>/{folder}" -out "<path>/{folder}.gma"
-     gmpublish.exe create -addon "<path>/{folder}.gma" -icon "<path>/{folder}/icon.jpg"
+     gmpublish.exe create -addon "<path>/{folder}.gma" -icon "<path>/{folder}/addon.jpg"
    A new version of the same song — update the mod you already published:
      gmpublish.exe update -addon "<path>/{folder}.gma" -id <mod number>
    (or with any GMod addon publishing tool). The title and the description can be changed on the Workshop.
@@ -681,7 +719,7 @@ def build(u: str, request: Request):
     chart = json.loads(r["chart"])
     if not chart.get("t"):
         raise HTTPException(400, "no notes yet: place them (or ask for the automatic ones) and save")
-    check_chart(chart["t"], set(chart["large"]), r["len"] or 0, chart.get("keys"))
+    check_chart(chart["t"], set(chart["large"]), r["len"] or 0, chart.get("keys"), lens=chart.get("lens"))
     files = mod_files(r)
     hashes = {path: hashlib.sha256(data).hexdigest() for path, data in files.items()}
     with _db() as con:
@@ -701,8 +739,7 @@ def mod_zip(u: str, request: Request):
             z.writestr(f"{folder}/{path}", data, compress_type=zipfile.ZIP_STORED if path.endswith(".ogg") else zipfile.ZIP_DEFLATED)
         z.writestr(f"{folder}/addon.json", addon_json(r))
         z.writestr(f"{folder}/README.txt", README.format(folder=folder))
-        with open(cover_path(u) or DEFAULT_COVER, "rb") as f:  # the Workshop icon: the song's cover
-            z.writestr(f"{folder}/icon.jpg", f.read())
+        z.writestr(f"{folder}/addon.jpg", addon_icon(cover_path(u) or DEFAULT_COVER))  # the Workshop icon: the song's cover
     return Response(buf.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{folder}.zip"', "Cache-Control": "private, no-store"})
 
