@@ -657,9 +657,18 @@ README = """Песня для мини-игры «Танец» мода My Littl
 3. Вставьте ссылку на мод на странице редактора песни и отправьте на проверку.
    Не меняйте файлы мода: игра сверяет их с сайтом и не подключит изменённую песню.
 
-A song for the dance minigame of My Little Pony: Maretime Bay (Garry's Mod): test it in garrysmod/addons/,
-publish it with gmad / gmpublish (garrysmod/bin; a new version: gmpublish update -id <item>), paste the Workshop
-link in the song editor. Don't change the files: the game checks them against the site.
+A song for the «Dance» minigame of the My Little Pony: Maretime Bay mod (Garry's Mod)
+
+1. Test it yourself: unpack the {folder} folder into garrysmod/addons/ and start the gamemode — the song appears
+   in the dance lobby's vote.
+2. Publish it to the Workshop (the garrysmod/bin folder):
+     gmad.exe create -folder "<path>/{folder}" -out "<path>/{folder}.gma"
+     gmpublish.exe create -addon "<path>/{folder}.gma" -icon "<path>/{folder}/icon.jpg"
+   A new version of the same song — update the mod you already published:
+     gmpublish.exe update -addon "<path>/{folder}.gma" -id <mod number>
+   (or with any GMod addon publishing tool). The title and the description can be changed on the Workshop.
+3. Paste the mod's link on the song editor page and send it for review.
+   Don't change the mod's files: the game checks them against the site and won't mount a changed song.
 """
 
 

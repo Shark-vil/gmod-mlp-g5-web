@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="512" height="512">
+  <!-- Transparent background -->
+  
+  <!-- Soft outer glow -->
+  <circle cx="100" cy="100" r="92" fill="#f3e8ff" opacity="0.12"/>
+  
+  <!-- Magical energy rings -->
+  <circle cx="100" cy="100" r="78" fill="none" stroke="#c084fc" stroke-width="2" opacity="0.35"/>
+  <circle cx="100" cy="100" r="68" fill="none" stroke="#e879f9" stroke-width="1.5" opacity="0.4"/>
+  
+  <!-- Central multi-pointed magical star -->
+  <g>
+    <!-- Main star -->
+    <path d="M100 28 
+             L112 72 L158 72 
+             L122 98 L136 142 
+             L100 116 L64 142 
+             L78 98 L42 72 
+             L88 72 Z" 
+          fill="#fbbf24" stroke="#d97706" stroke-width="2.5" stroke-linejoin="round"/>
+    
+    <!-- Inner star highlight -->
+    <path d="M100 48 
+             L108 76 L136 76 
+             L114 94 L122 122 
+             L100 104 L78 122 
+             L86 94 L64 76 
+             L92 76 Z" 
+          fill="#fef3c7" opacity="0.85"/>
+  </g>
+  
+  <!-- Magical swirls / energy trails -->
+  <path d="M55 55 
+           Q40 80 50 110 
+           Q60 130 80 140" 
+        fill="none" stroke="#a855f7" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  <path d="M145 55 
+           Q160 80 150 110 
+           Q140 130 120 140" 
+        fill="none" stroke="#a855f7" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  
+  <path d="M60 60 
+           Q48 85 55 105" 
+        fill="none" stroke="#e879f9" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  <path d="M140 60 
+           Q152 85 145 105" 
+        fill="none" stroke="#e879f9" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  
+  <!-- Small sparkle stars -->
+  <g fill="#fbbf24">
+    <!-- Top-left sparkle -->
+    <path d="M42 38 L44 44 L51 44 L46 48 L48 55 L42 51 L36 55 L38 48 L33 44 L40 44 Z"/>
+    <!-- Top-right sparkle -->
+    <path d="M158 38 L160 44 L167 44 L162 48 L164 55 L158 51 L152 55 L154 48 L149 44 L156 44 Z"/>
+    <!-- Bottom-left -->
+    <path d="M48 155 L50 160 L56 160 L52 163 L54 169 L48 165 L42 169 L44 163 L40 160 L46 160 Z"/>
+    <!-- Bottom-right -->
+    <path d="M152 155 L154 160 L160 160 L156 163 L158 169 L152 165 L146 169 L148 163 L144 160 L150 160 Z"/>
+  </g>
+  
+  <!-- Tiny sparkle dots -->
+  <g fill="#f0abfc">
+    <circle cx="70" cy="45" r="2.5"/>
+    <circle cx="130" cy="45" r="2.5"/>
+    <circle cx="45" cy="100" r="2"/>
+    <circle cx="155" cy="100" r="2"/>
+    <circle cx="75" cy="160" r="2.2"/>
+    <circle cx="125" cy="160" r="2.2"/>
+    <circle cx="100" cy="175" r="1.8"/>
+    <circle cx="100" cy="25" r="2"/>
+  </g>
+  
+  <!-- Center glow -->
+  <circle cx="100" cy="100" r="12" fill="#fef3c7" opacity="0.9"/>
+  <circle cx="100" cy="100" r="6" fill="#ffffff"/>
+</svg>

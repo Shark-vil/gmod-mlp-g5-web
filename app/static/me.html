@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Моя статистика — Maretime Bay</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="stylesheet" href="/static/site.css">
 <script src="/static/theme.js"></script>
+<script src="/static/i18n.js"></script>
 <style>
   .who { display: flex; align-items: center; gap: 12px; padding: 12px; }
   .who img { width: 56px; height: 56px; border-radius: 12px; }
@@ -36,7 +38,7 @@
 <body>
 <div class="bar"></div>
 <main>
-  <div class="top"><b>Maretime Bay</b><span id="account"></span></div>
+  <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay</b><span id="account"></span></div>
   <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs">Мои песни</a><a href="/me" class="on">Моя статистика</a></nav>
   <div id="out" class="card msg">Загрузка…</div>
   <div id="page" hidden>

@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Админка — Maretime Bay</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="stylesheet" href="/static/site.css">
 <script src="/static/theme.js"></script>
+<script src="/static/i18n.js"></script>
 <style>
   main { max-width: 980px; }
   .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
@@ -49,7 +51,7 @@
 <body>
 <div class="bar"></div>
 <main>
-  <div class="top"><b>Maretime Bay · админка</b><span id="account"></span></div>
+  <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay · админка</b><span id="account"></span></div>
   <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a><a href="/admin" class="on">Админка</a><a href="/api/docs">API</a></nav>
   <div id="out" class="card msg">Загрузка…</div>
   <div id="page" hidden>
@@ -91,13 +93,13 @@ const $ = id => document.getElementById(id);
 function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined && text !== null) e.textContent = text; if (cls) e.className = cls; return e; }
 function a(text, href) { const x = el("a", text); x.href = href; x.target = "_blank"; x.rel = "noopener"; return x; }
 function mmss(v) { v = Math.round(v || 0); return Math.floor(v / 60) + ":" + String(v % 60).padStart(2, "0"); }
-function when(t) { return t ? new Date(t * 1000).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "—"; }
+function when(t) { return t ? new Date(t * 1000).toLocaleString(mlpLocale(), { dateStyle: "short", timeStyle: "short" }) : "—"; }
 const STATUS = { draft: ["черновик", ""], built: ["мод собран", ""], pending: ["на проверке", "wait"], approved: ["одобрена", "ok"], rejected: ["отклонена", "no"] };
 let tab = "pending";
 
 async function api(method, url, body) {
   const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
-  if (!r.ok) { const j = await r.json().catch(() => ({})); alert("Не получилось: " + (j.detail || r.status)); return null; }
+  if (!r.ok) { const j = await r.json().catch(() => ({})); alert(tx("Не получилось: {0}", j.detail || r.status)); return null; }
   return r.json();
 }
 
@@ -109,26 +111,28 @@ function row(s) {
   if (s.hidden) t.appendChild(el("span", "скрыта словом", "chip no"));
   if (s.owner_banned) t.appendChild(el("span", "автор забанен", "chip no"));
   const sub = el("div", null, "sub");
-  sub.append([s.artist, mmss(s.len), s.bpm ? s.bpm + " BPM" : "", s.chart ? s.chart.t.length + " нот" : ""].filter(Boolean).join(" · ") + " · автор ");
-  sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile)); sub.append(" (" + s.owner + ") · изменена " + when(s.updated));
+  // separate text nodes: the words get translated (i18n.js), the song's own text stays as it is
+  [s.artist, mmss(s.len), s.bpm ? s.bpm + " BPM" : "", s.chart ? s.chart.t.length + " нот" : ""].filter(Boolean).forEach(x => sub.append(x, " · "));
+  sub.append("автор", " ");
+  sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile)); sub.append(" (" + s.owner + ") · ", "изменена", " " + when(s.updated));
   if (s.workshop) { sub.append(" · "); sub.appendChild(a("мод " + s.wsid, s.workshop)); }
-  if (s.reason) sub.append(" · причина: " + s.reason);
+  if (s.reason) sub.append(" · ", "причина:", " " + s.reason);
   const au = el("audio"); au.controls = true; au.preload = "none"; au.src = "/api/v1/songs/" + s.uuid + "/full.ogg";
   const act = el("div", null, "act");
   const btn = (text, cls, fn) => { const b = el("button", text, "btn " + (cls || "")); b.onclick = fn; act.appendChild(b); return b; };
   if (s.status === "pending") {
     btn("Одобрить", "main", async () => { if (await api("POST", `/api/v1/admin/songs/${s.uuid}/approve`)) load(); });
-    btn("Отклонить", "", async () => { const reason = prompt("Причина (её увидит автор):", ""); if (reason === null) return; if (await api("POST", `/api/v1/admin/songs/${s.uuid}/reject`, { reason })) load(); });
+    btn("Отклонить", "", async () => { const reason = prompt(tx("Причина (её увидит автор):"), ""); if (reason === null) return; if (await api("POST", `/api/v1/admin/songs/${s.uuid}/reject`, { reason })) load(); });
   }
   const ed = el("a", "Ноты в редакторе", "btn"); ed.href = "/editor/" + s.uuid; ed.target = "_blank"; act.appendChild(ed);
   if (s.status === "pending" || s.status === "built" || s.status === "approved") { const z = el("a", "Мод (.zip)", "btn"); z.href = `/api/v1/songs/${s.uuid}/mod.zip`; act.appendChild(z); }
   btn(s.owner_banned ? "Разбанить автора" : "Забанить автора", "", async () => {
     const ban = !s.owner_banned;
-    const reason = ban ? prompt("Причина бана автора " + (s.owner_nick || s.owner) + ":", "") : "";
+    const reason = ban ? prompt(tx("Причина бана автора {0}:", s.owner_nick || s.owner), "") : "";
     if (reason === null) return;
     if (await api("POST", `/api/v1/admin/users/${s.owner}/ban`, { banned: ban, reason })) load();
   });
-  btn("Удалить", "danger", async () => { if (!confirm("Удалить песню «" + s.title + "» насовсем (вместе со звуком)?")) return; if (await api("DELETE", "/api/v1/songs/" + s.uuid)) load(); });
+  btn("Удалить", "danger", async () => { if (!confirm(tx("Удалить песню «{0}» насовсем (вместе со звуком)?", s.title))) return; if (await api("DELETE", "/api/v1/songs/" + s.uuid)) load(); });
   const img = el("img", null, "cv"); img.src = s.cover; img.alt = ""; img.loading = "lazy";
   d.append(img, t, sub, au, act);
   return d;

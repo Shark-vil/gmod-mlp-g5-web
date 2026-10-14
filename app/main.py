@@ -259,6 +259,12 @@ def check_signed(install, purpose, x_nonce, x_sign, body):
         raise HTTPException(403, "bad signature")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """browsers ask for it on their own: the site's logo"""
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "logo.svg"), media_type="image/svg+xml")
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "time": int(time.time())}

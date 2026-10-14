@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Редактор песни — Maretime Bay</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="stylesheet" href="/static/site.css">
 <script src="/static/theme.js"></script>
+<script src="/static/i18n.js"></script>
 <style>
   main { max-width: 1100px; }
   .head { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; padding: 10px; align-items: center; }
@@ -79,7 +81,7 @@
 <body>
 <div class="bar"></div>
 <main>
-  <div class="top"><b>Maretime Bay · редактор песни</b><span id="account"></span></div>
+  <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay · редактор песни</b><span id="account"></span></div>
   <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a></nav>
   <div id="out" class="card msg">Загрузка…</div>
   <div id="ed" hidden>
@@ -92,7 +94,7 @@
     <input type="range" class="scroll" id="scroll" min="0" max="1000" value="0" aria-label="Прокрутка">
     <div class="recbar" id="recbar">
       <b>● Запись</b>
-      <span>Жмите в такт: <span class="k" data-k="up">↑</span><span class="k" data-k="down">↓</span><span class="k" data-k="left">←</span><span class="k" data-k="right">→</span>
+      <span data-i18n="recHint">Жмите в такт: <span class="k" data-k="up">↑</span><span class="k" data-k="down">↓</span><span class="k" data-k="left">←</span><span class="k" data-k="right">→</span>
         (или WASD), <span class="k" data-k="act">E</span> (или Пробел); держите дольше ~0,6 с — удержание.</span>
       <span id="recCount">0 нот</span>
       <button class="btn" id="recStop">■ Стоп (Esc)</button>
@@ -160,7 +162,7 @@
       </div>
       <div class="card">
         <h3>Live-запись</h3>
-        <p>«● Запись» — песня играет с текущего места, вы жмёте клавиши в такт, ноты ставятся сами (с направлением; держите дольше
+        <p data-i18n="liveHelp">«● Запись» — песня играет с текущего места, вы жмёте клавиши в такт, ноты ставятся сами (с направлением; держите дольше
           ~0,6 с — удержание). Потом поправьте точечно. Всю запись отменяет один <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</p>
         <div class="tools" style="padding:4px 0">
           <label><input type="checkbox" id="recReplace" checked style="width:auto"> заменить ноты в записанном отрезке</label>
@@ -186,19 +188,19 @@
       </div>
       <div class="card">
         <h3>Как править</h3>
-        <p>Клик по нижней части дорожки — поставить ноту или выбрать её; тяните, чтобы сдвинуть (выбранные — все вместе).
+        <p data-i18n="help1">Клик по нижней части дорожки — поставить ноту или выбрать её; тяните, чтобы сдвинуть (выбранные — все вместе).
           Клик по волне — перемотка; колесо — прокрутка, <kbd>Ctrl</kbd>+колесо — масштаб.</p>
-        <p><b>Кисть</b> — выберите направление и ставьте ноты подряд, каждая получит его. <b>Правка</b> — кнопки меняют
+        <p data-i18n="help2"><b>Кисть</b> — выберите направление и ставьте ноты подряд, каждая получит его. <b>Правка</b> — кнопки меняют
           выбранные ноты. Направления: <kbd>1</kbd>–<kbd>5</kbd> = ↑ ↓ ← → E, <kbd>0</kbd> = 🎲 (в каждой игре своя
           случайная клавиша), <kbd>Q</kbd> — следующее по кругу, <kbd>B</kbd> — Кисть / Правка. Удержание — любая клавиша.</p>
-        <p><kbd>Shift</kbd>+клик — добавить / убрать ноту из выбора, <kbd>Shift</kbd>+протянуть — выбрать отрезок,
+        <p data-i18n="help3"><kbd>Shift</kbd>+клик — добавить / убрать ноту из выбора, <kbd>Shift</kbd>+протянуть — выбрать отрезок,
           <kbd>Ctrl</kbd>+<kbd>A</kbd> — все, <kbd>Esc</kbd> — снять выбор. <kbd>Alt</kbd>+клик (или протянуть) — стереть.
           <kbd>Ctrl</kbd>+клик по ноте — следующее направление. <kbd>H</kbd> — удержание, <kbd>Delete</kbd> — удалить выбранные.
           <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> — сдвинуть выбранные на шаг привязки, <kbd>←</kbd> <kbd>→</kbd> — к соседней ноте.
           <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> — копировать выбранные и вставить с места курсора (повторить
           припев). <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> — отменить / вернуть, <kbd>Ctrl</kbd>+<kbd>S</kbd> —
           сохранить, <kbd>Пробел</kbd> — играть / пауза.</p>
-        <p><kbd>X</kbd> — зеркало выбранных (← ↔ →, ↑ ↔ ↓): припев повтором наоборот. <kbd>F</kbd> — заполнить по сетке:
+        <p data-i18n="help4"><kbd>X</kbd> — зеркало выбранных (← ↔ →, ↑ ↔ ↓): припев повтором наоборот. <kbd>F</kbd> — заполнить по сетке:
           между первой и последней выбранной нотой ставится нота на каждом шаге привязки (направление — кисть).
           <kbd>M</kbd> — метроном, «Скорость» 0,75× / 0,5× — расставлять медленно (и записывать тоже).</p>
         <div id="warns"></div>
@@ -319,7 +321,7 @@ function publishPanel() {
       song = await (await fetch("/api/v1/songs/" + UUID)).json(); publishPanel();
     };
     back.onclick = async () => {
-      if (!confirm("Вернуться к правке? Собранный мод перестанет подходить — его нужно будет собрать и выложить заново.")) return;
+      if (!confirm(tx("Вернуться к правке? Собранный мод перестанет подходить — его нужно будет собрать и выложить заново."))) return;
       await fetch("/api/v1/songs/" + UUID + "/unbuild", { method: "POST" });
       song = await (await fetch("/api/v1/songs/" + UUID)).json();
       $("ed").classList.remove("locked"); setStatus("сохранено"); publishPanel();
@@ -356,7 +358,7 @@ function publishPanel() {
     return;
   }
   if (song.status === "rejected") {
-    const p = el("p", "Проверку не прошла" + (song.reason ? ": " + song.reason : "") + ".", "bad");
+    const p = el("p", "Проверку не прошла", "bad"); p.append(song.reason ? ": " + song.reason + "." : ".");
     box.appendChild(p);
     if (pub) box.appendChild(el("p", `В игре и в списке остаётся версия ${pub.version}.`));
     box.appendChild(revise("Исправить", null));
@@ -688,12 +690,12 @@ function showKeys() {
   document.querySelectorAll("#keys .btn").forEach(b => b.classList.toggle("on", k !== null && b.dataset.k === k));
   const hint = keyMode === "brush" ? `ставьте ноты — каждая получит ${KNAME[brush]}` + (picked.size >= 2 ? ` · выбрано ${picked.size}: кнопка перекрасит их` : "")
     : (picked.size ? `выбрано нот: ${picked.size}` : "выберите ноту, потом направление");
-  if ($("keyhint").textContent !== hint) $("keyhint").textContent = hint;
+  if (showKeys.last !== hint) { showKeys.last = hint; $("keyhint").textContent = hint; }
 }
 document.querySelectorAll("#keys .btn").forEach(b => b.onclick = () => setKey(b.dataset.k));
 $("mBrush").onclick = () => setMode("brush"); $("mEdit").onclick = () => setMode("edit");
 if (window.mlpStore.get("mlpEdKeyMode") === "edit") keyMode = "edit";
-document.addEventListener("mlp-theme", () => draw());   // the lane is drawn with the theme's colours
+document.addEventListener("mlp-theme", () => draw()); document.addEventListener("mlp-lang", () => { showKeys.last = null; draw(); });   // the lane is drawn with the theme's colours
 $("mBrush").classList.toggle("on", keyMode === "brush"); $("mEdit").classList.toggle("on", keyMode === "edit");
 
 function toggleHold() {
@@ -900,9 +902,9 @@ async function doTrim(start, end) {
 $("trim").onclick = () => {
   const a = +$("tstart").value, b = +$("tend").value;
   if (!(b - a >= 20)) { setStatus("нужно оставить хотя бы 20 с"); return; }
-  if (confirm(`Оставить ${mmss(a, true)} — ${mmss(b, true)}? Ноты вне этого куска уберутся.`)) doTrim(a, b);
+  if (confirm(tx("Оставить {0} — {1}? Ноты вне этого куска уберутся.", mmss(a, true), mmss(b, true)))) doTrim(a, b);
 };
-$("untrim").onclick = () => { if (confirm("Вернуть всю песню? Ноты останутся на своих местах.")) doTrim(0, null); };
+$("untrim").onclick = () => { if (confirm(tx("Вернуть всю песню? Ноты останутся на своих местах."))) doTrim(0, null); };
 
 // ------------------------------------------------------------------ save, automatic chart
 async function save() {
@@ -919,11 +921,11 @@ async function save() {
 $("save").onclick = save;
 $("clear").onclick = () => {
   if (locked() || !notes.length) return;
-  if (!confirm(`Вы уверены? Все ноты (${notes.length}) будут удалены. Вернуть можно кнопкой «Отменить», пока страница открыта.`)) return;
+  if (!confirm(tx("Вы уверены? Все ноты ({0}) будут удалены. Вернуть можно кнопкой «Отменить», пока страница открыта.", notes.length))) return;
   snapshot(); notes = []; pick(-1); mark(); setStatus("все ноты удалены — не забудьте сохранить");
 };
 $("auto").onclick = async () => {
-  if (!confirm(notes.length ? "Расставить ноты автоматически? Текущие ноты заменятся (их можно вернуть «Отменить»)." : "Расставить ноты автоматически?")) return;
+  if (!confirm(tx(notes.length ? "Расставить ноты автоматически? Текущие ноты заменятся (их можно вернуть «Отменить»)." : "Расставить ноты автоматически?"))) return;
   snapshot();
   setStatus("расставляется…");
   await fetch("/api/v1/songs/" + UUID + "/auto", { method: "POST" });
@@ -1026,7 +1028,7 @@ $("test").onclick = () => {
       tg.globalAlpha = 1;
     }
     tg.restore();
-    if (t - wordT < 0.8) { tg.fillStyle = word === "ОЙ!" ? "#ff8a8a" : "#ffd65a"; tg.font = "bold 34px system-ui"; tg.textAlign = "center"; tg.textBaseline = "alphabetic"; tg.fillText(word, hx + 40, hy - 90 - (t - wordT) * 40); }
+    if (t - wordT < 0.8) { tg.fillStyle = word === "ОЙ!" ? "#ff8a8a" : "#ffd65a"; tg.font = "bold 34px system-ui"; tg.textAlign = "center"; tg.textBaseline = "alphabetic"; tg.fillText(tx(word), hx + 40, hy - 90 - (t - wordT) * 40); }
     if (t > song.len) { hint.textContent = "Готово! Очки: " + score + " · Esc — выйти"; }
     requestAnimationFrame(frame);
   }

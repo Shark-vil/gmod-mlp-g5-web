@@ -78,6 +78,7 @@
   .th { border: 0; border-radius: 999px; width: 32px; height: 28px; padding: 0; font-size: 16px; line-height: 28px; cursor: pointer;
         background: var(--row); color: var(--text); margin-right: 8px; vertical-align: middle; }
   .th:hover { outline: 2px solid var(--line); }
+  .th.lang { width: auto; padding: 0 9px; font-size: 12px; font-weight: 700; letter-spacing: .03em; }
   .top-right { display: inline-flex; align-items: center; }`;
   const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
   function label(b) {
@@ -92,8 +93,19 @@
     b.onclick = () => { window.mlpSetTheme(window.mlpTheme() === "dark" ? "light" : "dark"); };
     document.addEventListener("mlp-theme", () => label(b)); document.addEventListener("mlp-consent", () => label(b));
     label(b);
-    if (slot) { const w = document.createElement("span"); w.className = "top-right"; slot.parentNode.insertBefore(w, slot); w.appendChild(b); w.appendChild(slot); }
-    else document.body.appendChild(b);
+    // the language: the button shows the other one
+    const lb = document.createElement("button"); lb.className = "th lang"; lb.type = "button";
+    const llabel = () => {
+      const ru = window.mlpLang() === "ru";
+      lb.textContent = ru ? "EN" : "RU";
+      lb.title = (ru ? "Язык: English" : "Язык: русский") + (window.mlpConsent().prefs ? "" : " (не запомнится: сохранение настроек выключено в «Cookie»)");
+      lb.setAttribute("aria-label", lb.title);
+    };
+    lb.onclick = () => window.mlpSetLang(window.mlpLang() === "ru" ? "en" : "ru");
+    document.addEventListener("mlp-lang", () => { llabel(); label(b); }); document.addEventListener("mlp-consent", llabel);
+    llabel();
+    if (slot) { const w = document.createElement("span"); w.className = "top-right"; slot.parentNode.insertBefore(w, slot); w.append(lb, b, slot); }
+    else document.body.append(lb, b);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup); else setup();
 })();
@@ -124,9 +136,11 @@
   .ck-foot button { border: 0; background: none; color: var(--muted); text-decoration: underline; font: inherit; cursor: pointer; padding: 0; }`;
   const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
-  const KEYS = ["mlpTheme", "mlpEdKeyMode", "lf-mode:ban_words"];   // what "remember settings" keeps
+  const KEYS = ["mlpTheme", "mlpLang", "mlpEdKeyMode", "lf-mode:ban_words"];   // what "remember settings" keeps
   const LOSS_LOGIN = "Не получится войти через Steam: не будет «Мои песни», загрузки и редактора песен, «Моей статистики». Если вы уже вошли — выйдете.";
-  const LOSS_PREFS = "Тема, режим редактора и вид списков не запомнятся: при каждом открытии — снова как в системе и по умолчанию.";
+  const LOSS_PREFS = "Язык, тема, режим редактора и вид списков не запомнятся: при каждом открытии — снова как в системе и по умолчанию.";
+  const LOSS_LOGIN_ROW = "Без него: не получится войти через Steam — не будет «Мои песни», загрузки и редактора песен, «Моей статистики». Если вы уже вошли — выйдете.";
+  const LOSS_PREFS_ROW = "Без этого: язык, тема, режим редактора и вид списков не запомнятся — при каждом открытии снова как в системе и по умолчанию.";
 
   async function save(login, prefs) {
     const was = window.mlpConsent();
@@ -156,9 +170,9 @@
         : "Здесь нет рекламы, аналитики и чужих трекеров. Используется только то, без чего не работают функции сайта:"));
       const opts = [
         { id: "login", on: mode === "login" ? true : (c.decided ? c.login : true), title: "Вход через Steam",
-          what: "Cookie mlp_session на 30 дней — помнит, что вы вошли. Только для этого сайта.", loss: "Без него: " + LOSS_LOGIN.charAt(0).toLowerCase() + LOSS_LOGIN.slice(1) },
+          what: "Cookie mlp_session на 30 дней — помнит, что вы вошли. Только для этого сайта.", loss: LOSS_LOGIN_ROW },
         { id: "prefs", on: c.decided ? c.prefs : true, title: "Запоминать настройки",
-          what: "Память браузера (localStorage): тема, режим редактора нот, вид списков. Никуда не отправляется.", loss: "Без этого: " + LOSS_PREFS.charAt(0).toLowerCase() + LOSS_PREFS.slice(1) },
+          what: "Память браузера (localStorage): язык, тема, режим редактора нот, вид списков. Никуда не отправляется.", loss: LOSS_PREFS_ROW },
       ];
       const boxes = {};
       opts.forEach(o => {

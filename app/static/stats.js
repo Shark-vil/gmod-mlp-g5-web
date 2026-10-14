@@ -27,7 +27,7 @@ const CATS = [
 ];
 const PONIES = { sunny: "Санни", izzy: "Иззи", hitch: "Хитч", pipp: "Пипп", zipp: "Зипп" };
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
-function fmt(st, v) { return st.fmt ? st.fmt(v) : Math.round(v).toLocaleString("ru-RU"); }
+function fmt(st, v) { return st.fmt ? st.fmt(v) : Math.round(v).toLocaleString(mlpLocale()); }
 
 // ---- charts in a profile: play time per day (columns) and magic bits (line), the last 30 days.
 // One series each (the title names it, no legend); hover / focus shows the day's value.
@@ -145,7 +145,7 @@ async function charts(sid, box) {
     const h4 = document.createElement("h4"); h4.textContent = "За 30 дней";
     box.appendChild(h4); box.appendChild(wrap);
     drawChart(wrap, "Время в игре по дням, мин", "columns", perDay, days, (v, tick) => tick ? String(Math.round(v)) : Math.round(v) + " мин");
-    drawChart(wrap, "Звёзды за всё время", "line", stars, days, v => Math.round(v).toLocaleString("ru-RU"));
+    drawChart(wrap, "Звёзды за всё время", "line", stars, days, v => Math.round(v).toLocaleString(mlpLocale()));
   } catch (e) {}
 }
 

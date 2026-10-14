@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Мои песни — Maretime Bay</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="stylesheet" href="/static/site.css">
 <script src="/static/theme.js"></script>
+<script src="/static/i18n.js"></script>
 <style>
   .who { display: flex; align-items: center; gap: 12px; padding: 12px; }
   .who img { width: 56px; height: 56px; border-radius: 12px; }
@@ -37,7 +39,7 @@
 <body>
 <div class="bar"></div>
 <main>
-  <div class="top"><b>Maretime Bay</b><span id="account"></span></div>
+  <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay</b><span id="account"></span></div>
   <nav class="links"><a href="/">Рекорды</a><a href="/songs">Песни</a><a href="/my-songs" class="on">Мои песни</a><a href="/me">Моя статистика</a></nav>
   <div id="out" class="card msg">Загрузка…</div>
   <div id="page" hidden>
@@ -79,14 +81,15 @@ async function loadSongs() {
     const chip = document.createElement("span"); chip.className = "chip " + st[1]; chip.textContent = st[0]; t.appendChild(chip);
     const sub = document.createElement("div"); sub.className = "sub";
     const notes = s.chart ? s.chart.t.length + " нот" : "";
-    sub.textContent = [s.artist, mmss(s.len), s.bpm ? s.bpm + " BPM" : "", notes, ANALYSIS[s.analysis] || ""].filter(Boolean).join(" · ");
+    // separate text nodes: the words get translated (i18n.js), the artist stays as it is
+    [s.artist, mmss(s.len), s.bpm ? s.bpm + " BPM" : "", notes, ANALYSIS[s.analysis] || ""].filter(Boolean).forEach((x, i) => { if (i) sub.append(" · "); sub.append(x); });
     if (s.analysis === "queued" || s.analysis === "running") busy = true;
     if (s.published && s.status !== "approved") { const pc = document.createElement("span"); pc.className = "chip ok"; pc.textContent = "опубликована v" + s.published.version; t.appendChild(pc); }
     const act = document.createElement("div"); act.className = "act";
     const ed = document.createElement("a"); ed.className = "btn main"; ed.textContent = "Редактор"; ed.href = "/editor/" + s.uuid; act.appendChild(ed);
     if (!s.published && ["draft", "built", "rejected"].includes(s.status)) {
       const del = document.createElement("button"); del.className = "btn"; del.textContent = "Удалить";
-      del.onclick = async () => { if (!confirm("Удалить песню «" + s.title + "» вместе со звуком?")) return; await fetch("/api/v1/songs/" + s.uuid, { method: "DELETE" }); loadSongs(); };
+      del.onclick = async () => { if (!confirm(tx("Удалить песню «{0}» вместе со звуком?", s.title))) return; await fetch("/api/v1/songs/" + s.uuid, { method: "DELETE" }); loadSongs(); };
       act.appendChild(del);
     }
     const img = document.createElement("img"); img.className = "cv"; img.alt = ""; img.src = s.cover; img.loading = "lazy";

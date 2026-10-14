@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Песни для «Танца» — Maretime Bay</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="stylesheet" href="/static/site.css">
 <script src="/static/theme.js"></script>
+<script src="/static/i18n.js"></script>
 <style>
   .bar2 { display: flex; gap: 8px; margin-bottom: 10px; }
   .bar2 input { flex: 1; }
@@ -33,7 +35,7 @@
 <body>
 <div class="bar"></div>
 <main>
-  <div class="top"><b>Maretime Bay · песни</b><span id="account"></span></div>
+  <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay · песни</b><span id="account"></span></div>
   <nav class="links"><a href="/">Рекорды</a><a href="/songs" class="on">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a></nav>
   <div id="list">
     <div class="bar2"><input id="q" type="search" placeholder="Найти песню, исполнителя или автора" aria-label="Поиск песен"></div>
@@ -56,7 +58,7 @@ function songRow(s) {
   const row = el("div", null, "song");
   const t = el("div", null, "t"); t.appendChild(a(s.title, s.page));
   const sub = el("div", null, "sub");
-  sub.append([s.artist, mmss(s.len)].filter(Boolean).join(" · ") + " · автор ");
+  [s.artist, mmss(s.len)].filter(Boolean).forEach(x => sub.append(x, " · ")); sub.append("автор", " ");
   sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile, true));
   const left = el("div"); left.append(t, sub);
   const ws = el("div", null, "ws");
@@ -89,16 +91,16 @@ async function page(u) {
   let s = await r.json();
   if (s.status && !s.published) { box.textContent = "Песня ещё не опубликована. "; box.appendChild(a("Открыть в редакторе", "/editor/" + u)); return; }
   if (s.status) s = s.published;   // the author / an admin got the working copy: show the published one here
-  document.title = s.title + " — песни Maretime Bay";
+  document.title = tx("{0} — песни Maretime Bay", s.title);
   const head = el("div", null, "head"); const hi = el("img"); hi.src = s.cover; hi.alt = "Обложка"; head.appendChild(hi);
   const ht = el("div"); ht.appendChild(el("h1", s.title));
-  const sub = el("div", null, "note"); sub.append((s.artist ? s.artist + " · " : "") + "автор ");
+  const sub = el("div", null, "note"); if (s.artist) sub.append(s.artist, " · "); sub.append("автор", " ");
   sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile, true)); ht.appendChild(sub); head.appendChild(ht); box.appendChild(head);
   const au = el("audio"); au.controls = true; au.preload = "metadata"; au.src = s.preview; au.style.width = "100%"; box.appendChild(au);
   const f = el("div", null, "facts");
   const notes = s.chart ? s.chart.t.length : 0, holds = s.chart ? s.chart.large.length : 0;
   [["Длина", mmss(s.len)], ["Нот", notes], ["Удержаний", holds], ["Версия", s.version],
-   ["Опубликована", s.approved_at ? new Date(s.approved_at * 1000).toLocaleDateString("ru-RU") : "—"]].forEach(([k, v]) => {
+   ["Опубликована", s.approved_at ? new Date(s.approved_at * 1000).toLocaleDateString(mlpLocale()) : "—"]].forEach(([k, v]) => {
     const d = el("div"); d.append(el("span", k), el("b", String(v))); f.appendChild(d);
   });
   box.appendChild(f);
