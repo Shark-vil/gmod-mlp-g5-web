@@ -49,6 +49,10 @@
   .chip.tip { cursor: help; text-decoration: underline dotted; }
   .badges { display: flex; flex-wrap: wrap; gap: 4px; }
   .badges span { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--row); }
+  .wsq { padding: 12px; margin-bottom: 10px; }
+  .wsq-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .wsq-row span { color: var(--muted); font-size: 13px; }
+  .wsq-note { color: var(--muted); font-size: 13px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -61,6 +65,7 @@
     <div class="tabs">
       <button class="btn on" data-tab="pending">На проверке</button>
       <button class="btn" data-tab="all">Все песни</button>
+      <button class="btn" data-tab="claims">Жалобы АП и Мастерская</button>
       <button class="btn" data-tab="words">Запрещённые слова</button>
       <button class="btn" data-tab="genres">Жанры</button>
     </div>
@@ -69,6 +74,10 @@
         <input id="q" type="search" placeholder="Название, исполнитель, автор, SteamID, uuid, номер мода" aria-label="Поиск">
         <select id="status" aria-label="Статус"><option value="">все статусы</option><option value="draft">черновик</option><option value="built">мод собран</option>
           <option value="pending">на проверке</option><option value="approved">одобрена</option><option value="rejected">отклонена</option></select>
+      </div>
+      <div class="card wsq" id="wsq" hidden>
+        <div class="wsq-row"><button class="btn main" id="wsqGo">Проверить все песни в Мастерской</button><button class="btn" id="wsqStop" hidden>Остановить</button><span id="wsqMsg"></span></div>
+        <div class="wsq-note">Фоновая очередь: по 20 модов за запрос к Steam, медленно, чтобы Steam не забанил. Мод пропал (удалён, скрыт, забанен) — песня скрывается со статусом «Мёртвая страница Мастерской» (если на неё была жалоба АП — «Заблокирована за АП»). Ничего не удаляется: разблокировать, дать новую ссылку или удалить — здесь. Песни с жалобой проверяются сами, раз в 3 часа.</div>
       </div>
       <div class="card" id="rows"></div>
     </div>
@@ -139,6 +148,9 @@ function row(s) {
   }
   if (nickHit) { const c = el("span", "ник → штрихкод", "chip wait tip"); c.title = (s.filter_hits || []).filter(h => h.where === "nick").map(h => tx("«{0}» — {1}", h.word, tx(WHERE.nick))).join("\n"); t.appendChild(c); }
   if (s.owner_banned) t.appendChild(el("span", "автор забанен", "chip no"));
+  if (s.block === "copyright") t.appendChild(el("span", tx("заблокирована за АП · {0}", when(s.block_at)), "chip no"));
+  if (s.block === "deadws") t.appendChild(el("span", tx("Мёртвая страница Мастерской · {0}", when(s.block_at)), "chip no"));
+  if (s.claim_at) { const c = el("span", tx("жалоба АП · ждём до {0}", when(s.claim_until)), "chip wait tip"); c.title = tx("подана {0}; всего жалоб: {1}; мод проверен: {2}", when(s.claim_at), s.claim_n, when(s.ws_checked)); t.appendChild(c); }
   if (s.owner_trusted) t.appendChild(el("span", "проверенный автор", "chip ok"));
   if (s.approved_by === "auto" && s.status === "approved") t.appendChild(el("span", "одобрено автоматически", "chip"));
   // a new version that changes only the title / artist / cover / preview: the published mod stays (no new build)
@@ -176,6 +188,12 @@ function row(s) {
     if (reason === null) return;
     if (await api("POST", `/api/v1/admin/users/${s.owner}/ban`, { banned: ban, reason })) load();
   });
+  if (s.block) btn("Разблокировать", "", async () => { if (confirm(tx("Снова показать «{0}» на сайте и в игре?", s.title)) && await api("POST", `/api/v1/admin/songs/${s.uuid}/unblock`)) load(); });
+  if (s.block === "deadws") btn("Новая ссылка на мод", "", async () => {
+    const ws = prompt(tx("Ссылка на мод автора в Мастерской:"), ""); if (!ws) return;
+    if (await api("POST", `/api/v1/songs/${s.uuid}/relink`, { workshop: ws })) load();
+  });
+  if (s.claim_at) btn("Снять жалобу", "", async () => { if (confirm(tx("Снять жалобу АП с «{0}»? Значок жалобы вернётся.", s.title)) && await api("POST", `/api/v1/admin/songs/${s.uuid}/claim-drop`)) load(); });
   btn("Удалить", "danger", async () => { if (!confirm(tx("Удалить песню «{0}» насовсем (вместе со звуком)?", s.title))) return; if (await api("DELETE", "/api/v1/songs/" + s.uuid)) load(); });
   const img = el("img", null, "cv"); img.src = s.cover; img.alt = ""; img.loading = "lazy";
   d.append(img, t, sub);
@@ -189,10 +207,10 @@ async function load() {
   if (tab === "words" || tab === "genres") return;
   try { GENRES = (await (await fetch("/api/v1/genres")).json()).genres || []; } catch (e) {}
   const box = $("rows");
-  const status = tab === "pending" ? "pending" : $("status").value;
+  const status = tab === "pending" ? "pending" : tab === "claims" ? "claims" : $("status").value;
   const res = await (await fetch(`/api/v1/admin/songs?status=${status}&q=${encodeURIComponent(tab === "all" ? $("q").value : "")}`)).json();
   box.textContent = "";
-  if (!res.songs || !res.songs.length) { box.appendChild(el("div", tab === "pending" ? "Очередь пуста" : "Ничего не нашлось", "empty")); return; }
+  if (!res.songs || !res.songs.length) { box.appendChild(el("div", tab === "pending" ? "Очередь пуста" : tab === "claims" ? "Жалоб и заблокированных песен нет" : "Ничего не нашлось", "empty")); return; }
   res.songs.forEach(s => box.appendChild(row(s)));
 }
 
@@ -201,10 +219,25 @@ document.querySelectorAll(".tabs .btn").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tabs .btn").forEach(x => x.classList.toggle("on", x === b));
   $("tab-songs").hidden = tab === "words" || tab === "genres"; $("tab-words").hidden = tab !== "words"; $("tab-genres").hidden = tab !== "genres";
   $("filters").hidden = tab !== "all";
+  $("wsq").hidden = tab !== "claims"; if (tab === "claims") wsq();
   if (tab === "words") loadWords(); else if (tab === "genres") loadGenres(); else load();
 });
 $("q").addEventListener("input", () => { clearTimeout(qTimer); qTimer = setTimeout(load, 250); });
 $("status").onchange = load;
+
+// ---- the slow check of every song's Workshop item
+let wsqTimer = null;
+function wsqShow(q) {
+  if (!q) return;
+  $("wsqGo").hidden = q.running; $("wsqStop").hidden = !q.running;
+  $("wsqMsg").textContent = q.running ? tx("идёт: {0} из {1}, пропало {2} · осталось ≈ {3} мин", q.done, q.total, q.dead, Math.ceil(q.eta / 60))
+    : q.finished ? tx("последняя проверка {0}: {1} из {2}, пропало {3}", when(q.finished), q.done, q.total, q.dead) + (q.stopped === "steam" ? " · " + tx("Steam не отвечал — остановлено") : "") : "";
+  clearTimeout(wsqTimer);
+  if (q.running) wsqTimer = setTimeout(async () => { if (tab === "claims") { const was = q.dead; const n = await wsq(); if (n && n.dead !== was) load(); } }, 5000);
+}
+async function wsq() { const q = await (await fetch("/api/v1/admin/wscheck")).json().catch(() => null); wsqShow(q); return q; }
+$("wsqGo").onclick = async () => { wsqShow(await api("POST", "/api/v1/admin/wscheck", {})); };
+$("wsqStop").onclick = async () => { wsqShow(await api("POST", "/api/v1/admin/wscheck", { stop: true })); load(); };
 
 // ---- the list field (as in tg-pony-moderator): lines / commas / one by one + chips, .txt import; two of them
 function listField(lf, LS, sepOk) {

@@ -48,6 +48,12 @@
   .top10 ol { margin: 4px 0 10px; padding-left: 22px; }
   .top10 li { padding: 3px 0; }
   .top10 a { color: var(--text); }
+  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+  .claim { border: 0; background: none; padding: 2px 4px; cursor: pointer; color: var(--muted); opacity: .45; font-size: 13px; line-height: 1; }
+  .claim:hover, .claim:focus-visible { opacity: 1; }
+  .claim svg { width: 14px; height: 14px; vertical-align: -2px; }
+  .lg-box p { font-size: 14px; margin: 0 0 10px; }
+  .lg-box .wsl { overflow-wrap: anywhere; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -170,7 +176,48 @@ async function page(u) {
     lb.rows.forEach(r => { const li = el("li"); li.appendChild(a(r.nick || r.steamid, "https://steamcommunity.com/profiles/" + r.steamid, true)); li.append(" — ", el("b", String(Math.round(r.value))), " ", "очк."); ol.appendChild(li); });
     top.appendChild(ol);
   }
-  const back = a("← Все песни", "/songs"); back.style.color = "var(--muted)"; box.appendChild(back);
+  const foot = el("div", null, "foot");
+  const back = a("← Все песни", "/songs"); back.style.color = "var(--muted)"; foot.appendChild(back);
+  // the rights holder's complaint: a quiet icon; gone for everybody while a complaint is being handled
+  if (s.workshop && !s.claimed) {
+    const c = el("button", null, "claim"); c.type = "button";
+    c.title = "Сообщить о нарушении авторских прав"; c.setAttribute("aria-label", "Сообщить о нарушении авторских прав");
+    c.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M10 6.2a2.6 2.6 0 1 0 0 3.6"/></svg>';
+    c.onclick = () => claimDialog(u, c);
+    foot.appendChild(c);
+  }
+  box.appendChild(foot);
+}
+
+function claimDialog(u, icon) {
+  const back = el("div", null, "lg-back"), dlg = el("div", null, "lg-box");
+  back.setAttribute("role", "dialog"); back.setAttribute("aria-modal", "true");
+  const close = () => { back.remove(); document.removeEventListener("keydown", esc); };
+  const esc = e => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", esc);
+  back.addEventListener("click", e => { if (e.target === back) close(); });
+  const act = el("div", null, "lg-actions");
+  const btn = (text, cls, fn) => { const b = el("button", text, cls); b.onclick = fn; act.appendChild(b); return b; };
+  dlg.append(el("h2", "Жалоба правообладателя"),
+    el("p", "Вы правообладатель трека или представляете его? Жалоба запускает проверку мода этой песни в Мастерской Steam."),
+    el("p", "Отправляйте её, только если трек действительно нарушает ваши права."));
+  btn("Отмена", "cancel", close);
+  const go = btn("Отправить жалобу", "go", async () => {
+    go.disabled = true;
+    let r, j = {};
+    try { r = await fetch("/api/v1/songs/" + u + "/claim", { method: "POST" }); j = await r.json().catch(() => ({})); } catch (e) {}
+    if (!r || !r.ok) { go.disabled = false; act.before(el("p", tx("Не получилось: {0}", j.detail || (r ? r.status : "нет связи")), "no")); return; }
+    icon.remove();
+    dlg.textContent = ""; act.textContent = "";
+    dlg.append(el("h2", j.already ? "Жалоба уже подана" : "Жалоба принята"),
+      el("p", "Песни распространяются модами в Мастерской Steam — сайт их не раздаёт в игру. Чтобы убрать трек, подайте жалобу на мод через Steam:"));
+    const l = a(j.workshop, j.workshop, true); l.className = "wsl"; const lp = el("p"); lp.appendChild(l); dlg.appendChild(lp);
+    dlg.append(el("p", "На странице мода: «Пожаловаться» → нарушение авторских прав."),
+      el("p", tx("Мы следим за модом до {0}. Как только Steam его уберёт, песня будет скрыта с сайта и из игры (проверка — раз в несколько часов).", new Date(j.until * 1000).toLocaleDateString(mlpLocale()))),
+      el("p", "Если за это время мод не пропадёт, жалоба снимается — её нужно будет подать заново.", "no"));
+    btn("Закрыть", "go", close); dlg.appendChild(act);
+  });
+  dlg.appendChild(act); back.appendChild(dlg); document.body.appendChild(back); go.focus();
 }
 
 async function start() {

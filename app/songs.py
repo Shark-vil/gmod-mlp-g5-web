@@ -39,9 +39,15 @@ approved by themselves (the filter still checks them).
   POST   /api/v1/songs/{uuid}/revise    approved / rejected -> draft (a new version; the published one stays)
   GET    /api/v1/genres                 the genres { id, ru, en }; GET /api/v1/tags?q= the published songs' tags (hints)
   DELETE /api/v1/songs/{uuid}           the author (never published) or an admin
+  POST   /api/v1/songs/{uuid}/claim     a rights holder's complaint (anyone, confirmed on the page) -> the Workshop link to
+                                        report; the song's Workshop item is then watched for CLAIM_DAYS: gone -> the song is
+                                        blocked "copyright" (hidden, not deleted); nothing in that time -> the claim lapses
+  POST   /api/v1/songs/{uuid}/relink    { workshop } a "dead Workshop page" song back with a new item (the author / an admin)
   admin: GET /api/v1/admin/songs (?status, ?q), POST …/{uuid}/approve, POST …/{uuid}/reject { reason },
          GET / PUT /api/v1/admin/banwords { words }, POST /api/v1/admin/users/{steamid}/ban { banned, reason },
-         GET / PUT /api/v1/admin/genres { genres: [ { id?, ru, en } ] }, POST /api/v1/admin/users/{steamid}/trust { trusted }
+         GET / PUT /api/v1/admin/genres { genres: [ { id?, ru, en } ] }, POST /api/v1/admin/users/{steamid}/trust { trusted },
+         GET /api/v1/admin/songs?status=claims (complaints, blocked, dead pages), POST …/{uuid}/unblock, POST …/{uuid}/claim-drop,
+         GET / POST /api/v1/admin/wscheck { stop? } — the slow background check of every published song's Workshop item
 """
 import hashlib
 import io
@@ -113,7 +119,9 @@ LIVE_COLS = {"trim_start": "REAL DEFAULT 0", "trim_end": "REAL", "src_len": "REA
              "tags": "TEXT", "live_tags": "TEXT", "genres": "TEXT", "source": "TEXT", "live_source": "TEXT",
              "swear": "INTEGER DEFAULT 0", "lewd": "INTEGER DEFAULT 0", "live_swear": "INTEGER DEFAULT 0", "live_lewd": "INTEGER DEFAULT 0",
              "ws_title": "TEXT", "ws_desc": "TEXT",            # the Workshop item's title / description (at the submit)
-             "approved_by": "TEXT", "filter_at": "INTEGER DEFAULT 0"}  # "auto" / the admin; the last filter penalty
+             "approved_by": "TEXT", "filter_at": "INTEGER DEFAULT 0",  # "auto" / the admin; the last filter penalty
+             # a block: "copyright" (the Workshop item went after a complaint) / "deadws" (the item is gone); hidden, not deleted
+             "block": "TEXT", "block_at": "INTEGER", "claim_at": "INTEGER", "claim_n": "INTEGER DEFAULT 0", "ws_checked": "INTEGER DEFAULT 0"}
 USER_COLS = {"trust": "INTEGER DEFAULT 0", "trusted": "INTEGER DEFAULT 0"}
 
 
@@ -144,6 +152,7 @@ def init(db_factory, data_dir):
         for col, kind in USER_COLS.items():  # the author's trust
             if col not in have:
                 con.execute(f"ALTER TABLE users ADD COLUMN {col} {kind}")
+    threading.Thread(target=_ws_loop, daemon=True).start()
 
 
 def song_dir(u):
@@ -466,7 +475,8 @@ def published(r, words=None):
             "wsid": r["live_wsid"], "workshop": _workshop(r["live_wsid"]),
             "preview": f"/api/v1/songs/{r['uuid']}/preview.ogg", "page": f"/songs/{r['uuid']}",
             "cover": f"/api/v1/songs/{r['uuid']}/cover.jpg?v={r['live_version']}",
-            "stat": song_stat(r["uuid"])}  # the best scores on it: GET /api/v1/leaderboard?stat=…
+            "stat": song_stat(r["uuid"]),  # the best scores on it: GET /api/v1/leaderboard?stat=…
+            "claimed": claim_active(r)}  # a rights holder's complaint is in: the page's complaint icon is gone
 
 
 _SHA = {}  # path -> ( mtime, size, sha256 ): the files' hashes, worked out once per change
@@ -527,6 +537,9 @@ def working(r):
             "cover_kind": ("own" if os.path.exists(os.path.join(song_dir(r["uuid"]), "cover_own.flag")) else
                            ("file" if cover_path(r["uuid"]) else "default")),
             "published": published(r),
+            "block": r["block"], "block_at": r["block_at"], "claim_at": r["claim_at"] if claim_active(r) else None,
+            "claim_until": r["claim_at"] + CLAIM_DAYS * 86400 if claim_active(r) else None, "claim_n": r["claim_n"] or 0,
+            "ws_checked": r["ws_checked"] or None,
             # a draft / a waiting version of a published song with the same notes and sound: no new mod needed
             **_meta_fields(r)}
 
@@ -541,7 +554,7 @@ def _meta_fields(r):
 
 
 def _visible(r, words=None):
-    return bool(r["live_version"]) and not r["owner_banned"] and not hidden(r, words)
+    return bool(r["live_version"]) and not r["owner_banned"] and not r["block"] and not hidden(r, words)
 
 
 @router.get("/api/v1/songs")
@@ -1245,10 +1258,14 @@ def admin_songs(request: Request, status: str = "", q: str = "", limit: int = 10
     _admin(request)
     words = ban_words()
     sql, args = "SELECT s.*, u.nick AS owner_nick, u.banned AS owner_banned, u.trusted AS owner_trusted, u.trust AS owner_trust FROM songs s LEFT JOIN users u ON u.steamid = s.owner WHERE s.status != 'deleted'", []
-    if status:
+    if status == "claims":   # complaints in progress, the blocked, the dead Workshop pages
+        sql += " AND ( s.block IS NOT NULL OR s.claim_at > ? )"
+        args.append(_now() - CLAIM_DAYS * 86400)
+    elif status:
         sql += " AND s.status = ?"
         args.append(status)
-    sql += " ORDER BY CASE s.status WHEN 'pending' THEN 0 ELSE 1 END, s.updated DESC"
+    sql += (" ORDER BY CASE WHEN s.block IS NULL THEN 0 ELSE 1 END, COALESCE( s.claim_at, s.block_at ) DESC" if status == "claims" else
+            " ORDER BY CASE s.status WHEN 'pending' THEN 0 ELSE 1 END, s.updated DESC")
     with _db() as con:
         rows = con.execute(sql, args).fetchall()
     ql = q.strip().lower()
@@ -1298,6 +1315,7 @@ def approve(u, by):
         con.execute("UPDATE songs SET status = 'approved', reason = NULL, version = ?, live_version = ?, live_at = ?, live_title = title, "
                     "live_artist = artist, live_chart = chart, live_hashes = hashes, live_wsid = wsid, live_len = len, live_beat = beat, "
                     "live_tags = tags, live_source = source, live_swear = swear, live_lewd = lewd, approved_by = ?, "
+                    "block = CASE block WHEN 'deadws' THEN NULL ELSE block END, "
                     "updated = ? WHERE uuid = ?", (ver, ver, _now(), by, _now(), u))
         con.execute("DELETE FROM song_history WHERE uuid = ?", (u,))  # published: the rollback history goes
         if by != "auto":
@@ -1407,3 +1425,210 @@ async def admin_ban(steamid: str, request: Request):
                     "ON CONFLICT ( steamid ) DO UPDATE SET banned = excluded.banned, ban_reason = excluded.ban_reason",
                     (steamid, steamid, banned, str(body.get("reason", ""))[:200] or None))
     return {"ok": True, "banned": bool(banned)}
+
+
+# ---------------------------------------------------------------------------------------------- copyright, dead Workshop pages
+# The site doesn't host the songs for the game: each one is a Workshop mod. A rights holder complains here (a quiet icon
+# on the song's page, confirmed) and gets the mod's link to report to Steam; the song is then watched: when Steam takes
+# the item down, the song is blocked "copyright" (hidden from the list and the game, kept for the admins). No change in
+# CLAIM_DAYS -> the claim lapses (the icon is back, a new complaint is needed). An admin's slow check of every song
+# blocks the ones whose item is gone as "deadws"; the author / an admin brings one back with a new link.
+CLAIM_DAYS = float(os.environ.get("MLP_CLAIM_DAYS", "14"))
+CLAIM_RECHECK = 3 * 3600          # a claimed song's item is asked about this often
+CLAIMS_PER_IP_HOUR = 3
+WS_BATCH = 20                     # items per Steam request
+WS_PAUSE = float(os.environ.get("MLP_WS_CHECK_PAUSE", "10"))   # seconds between the requests: slow, so Steam doesn't mind
+_WSQ = {"running": False, "queue": [], "total": 0, "done": 0, "dead": 0, "errors": 0, "started": None, "finished": None}
+_WSQ_LOCK = threading.Lock()
+_CLAIM_IPS = {}
+
+
+def claim_active(r):
+    return bool(r["claim_at"]) and r["claim_at"] > _now() - CLAIM_DAYS * 86400 and not r["block"]
+
+
+def ws_items(ids):
+    """Steam's facts about up to WS_BATCH Workshop items: { id: details } (an item Steam doesn't know: result != 1),
+    None when Steam didn't answer (then nothing is decided)"""
+    form = {"itemcount": len(ids)}
+    for i, x in enumerate(ids):
+        form[f"publishedfileids[{i}]"] = x
+    req = urllib.request.Request("https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
+                                 data=urllib.parse.urlencode(form).encode(),
+                                 headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": "mlp-g5-web"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            got = json.loads(resp.read(4000000))["response"]["publishedfiledetails"]
+    except Exception:
+        return None
+    return {str(d.get("publishedfileid")): d for d in got}
+
+
+def ws_dead(d):
+    """the item is gone for the players: deleted / hidden by Steam, banned, private / friends-only"""
+    return not d or int(d.get("result") or 0) != 1 or int(d.get("banned") or 0) != 0 or int(d.get("visibility") or 0) != 0
+
+
+def ws_check(uuids):
+    """asks Steam about these songs' published items (one request); a gone one -> blocked; -> ( checked, dead ) or None"""
+    with _db() as con:
+        rows = con.execute(f"SELECT uuid, live_wsid, block, claim_at FROM songs WHERE uuid IN ( {','.join('?' * len(uuids))} ) "
+                           "AND live_wsid IS NOT NULL AND block IS NULL AND status != 'deleted'", uuids).fetchall()
+    if not rows:
+        return 0, 0
+    got = ws_items([r["live_wsid"] for r in rows])
+    if got is None:
+        return None
+    dead, now = 0, _now()
+    with _db() as con:
+        for r in rows:
+            if ws_dead(got.get(str(r["live_wsid"]))):
+                why = "copyright" if r["claim_at"] and r["claim_at"] > now - CLAIM_DAYS * 86400 else "deadws"
+                con.execute("UPDATE songs SET block = ?, block_at = ?, ws_checked = ? WHERE uuid = ? AND block IS NULL", (why, now, now, r["uuid"]))
+                dead += 1
+            else:
+                con.execute("UPDATE songs SET ws_checked = ? WHERE uuid = ?", (now, r["uuid"]))
+    return len(rows), dead
+
+
+def _ws_loop():
+    """the background: the claimed songs every CLAIM_RECHECK, the admins' queue a batch at a time, slowly"""
+    while True:
+        time.sleep(WS_PAUSE)
+        try:
+            with _db() as con:
+                due = [r["uuid"] for r in con.execute(
+                    "SELECT uuid FROM songs WHERE claim_at > ? AND block IS NULL AND status != 'deleted' AND COALESCE( ws_checked, 0 ) < ? "
+                    "ORDER BY ws_checked LIMIT ?", (_now() - CLAIM_DAYS * 86400, _now() - CLAIM_RECHECK, WS_BATCH))]
+            if due:
+                ws_check(due)
+                continue
+            with _WSQ_LOCK:
+                if not _WSQ["running"]:
+                    continue
+                batch = _WSQ["queue"][:WS_BATCH]
+            res = ws_check(batch) if batch else (0, 0)
+            with _WSQ_LOCK:
+                if res is None:
+                    _WSQ["errors"] += 1   # Steam didn't answer: the same batch again next time (up to 20 tries in a row)
+                    if _WSQ["errors"] >= 20:
+                        _WSQ.update(running=False, finished=_now(), stopped="steam")
+                    continue
+                _WSQ["errors"] = 0
+                _WSQ["queue"] = _WSQ["queue"][len(batch):]
+                _WSQ["done"] += len(batch)
+                _WSQ["dead"] += res[1]
+                if not _WSQ["queue"]:
+                    _WSQ.update(running=False, finished=_now())
+        except Exception:
+            pass
+
+
+def _client_ip(request):
+    for h in ("cf-connecting-ip", "x-real-ip"):
+        if request.headers.get(h):
+            return request.headers[h][:64]
+    fwd = request.headers.get("x-forwarded-for")
+    return fwd.split(",")[0].strip()[:64] if fwd else (request.client.host if request.client else "?")
+
+
+@router.post("/api/v1/songs/{u}/claim")
+def claim(u: str, request: Request):
+    """a rights holder's complaint: the song's Workshop item is watched; -> the link to report to Steam"""
+    r = _row(u)
+    if not _visible(r) or not r["live_wsid"]:
+        raise HTTPException(404, "no such song")
+    out = {"workshop": _workshop(r["live_wsid"]), "days": CLAIM_DAYS}
+    if claim_active(r):
+        return {**out, "already": True, "until": r["claim_at"] + CLAIM_DAYS * 86400}
+    ip, now = _client_ip(request), _now()
+    times = [t for t in _CLAIM_IPS.get(ip, []) if t > now - 3600]
+    if len(times) >= CLAIMS_PER_IP_HOUR:
+        raise HTTPException(429, "too many complaints from this address, try in an hour")
+    _CLAIM_IPS[ip] = times + [now]
+    with _db() as con:
+        con.execute("UPDATE songs SET claim_at = ?, claim_n = COALESCE( claim_n, 0 ) + 1, ws_checked = 0 WHERE uuid = ?", (now, u))
+    return {**out, "until": now + CLAIM_DAYS * 86400}
+
+
+@router.post("/api/v1/songs/{u}/relink")
+async def relink(u: str, request: Request):
+    """a song blocked as a dead Workshop page back with a new item of its author (the game still checks the files)"""
+    r = _row(u)
+    user = auth.require_user(request)
+    if not (user["admin"] or user["steamid"] == r["owner"]):
+        raise HTTPException(403, "only the author")
+    if r["block"] != "deadws":
+        raise HTTPException(409, "only a song with a dead Workshop page")
+    body = await request.json()
+    m = WSID_RE.search(str(body.get("workshop", "")).strip())
+    if not m:
+        raise HTTPException(400, "a Workshop link (…/filedetails/?id=123…) or its number")
+    wsid = m.group(1)
+    with _db() as con:
+        if con.execute("SELECT uuid FROM songs WHERE ( wsid = ? OR live_wsid = ? ) AND uuid != ? AND status != 'deleted'", (wsid, wsid, u)).fetchone():
+            raise HTTPException(409, "this Workshop item is already another song")
+    d = workshop_item(wsid)
+    if not d or ws_dead(d):
+        raise HTTPException(404, "Steam doesn't know this Workshop item (or it's hidden)")
+    if int(d.get("consumer_app_id") or 0) != 4000:
+        raise HTTPException(400, "this isn't a Garry's Mod item")
+    if str(d.get("creator")) != r["owner"]:
+        raise HTTPException(403, "this item was published by another Steam account")
+    with _db() as con:
+        con.execute("UPDATE songs SET live_wsid = ?, wsid = CASE WHEN wsid = ? OR wsid IS NULL THEN ? ELSE wsid END, block = NULL, block_at = NULL, "
+                    "ws_checked = ?, updated = ? WHERE uuid = ?", (wsid, r["live_wsid"], wsid, _now(), _now(), u))
+    return {"ok": True, "wsid": wsid}
+
+
+@router.post("/api/v1/admin/songs/{u}/unblock")
+def admin_unblock(u: str, request: Request):
+    """a false block: the song is shown again, the complaint is closed"""
+    _admin(request)
+    _row(u)
+    with _db() as con:
+        con.execute("UPDATE songs SET block = NULL, block_at = NULL, claim_at = NULL, ws_checked = ? WHERE uuid = ?", (_now(), u))
+    return {"ok": True}
+
+
+@router.post("/api/v1/admin/songs/{u}/claim-drop")
+def admin_claim_drop(u: str, request: Request):
+    """a complaint that isn't real: closed (the icon is back)"""
+    _admin(request)
+    _row(u)
+    with _db() as con:
+        con.execute("UPDATE songs SET claim_at = NULL WHERE uuid = ?", (u,))
+    return {"ok": True}
+
+
+def _wsq_state():
+    q = {k: v for k, v in _WSQ.items() if k != "queue"}
+    q["left"] = len(_WSQ["queue"])
+    q["eta"] = int((q["left"] + WS_BATCH - 1) // WS_BATCH * WS_PAUSE) if _WSQ["running"] else 0
+    return q
+
+
+@router.get("/api/v1/admin/wscheck")
+def admin_wscheck(request: Request):
+    _admin(request)
+    with _WSQ_LOCK:
+        return _wsq_state()
+
+
+@router.post("/api/v1/admin/wscheck")
+async def admin_wscheck_start(request: Request):
+    """{ stop? } every published song's Workshop item, WS_BATCH per request every WS_PAUSE s, in the background;
+    a gone item -> the song is blocked "deadws" (a claimed one: "copyright")"""
+    _admin(request)
+    body = await request.json() if (await request.body()) else {}
+    with _WSQ_LOCK:
+        if body.get("stop"):
+            _WSQ.update(running=False, queue=[], finished=_now())
+            return _wsq_state()
+        if not _WSQ["running"]:
+            with _db() as con:
+                ids = [r["uuid"] for r in con.execute("SELECT uuid FROM songs WHERE live_version > 0 AND live_wsid IS NOT NULL "
+                                                       "AND block IS NULL AND status != 'deleted' ORDER BY COALESCE( ws_checked, 0 )")]
+            _WSQ.update(running=bool(ids), queue=ids, total=len(ids), done=0, dead=0, errors=0, started=_now(),
+                        finished=None if ids else _now(), stopped=None)
+        return _wsq_state()

@@ -92,6 +92,23 @@ async function loadSongs() {
     if (s.analysis === "queued" || s.analysis === "running") busy = true;
     if (s.published && s.status !== "approved") { const pc = document.createElement("span"); pc.className = "chip ok"; pc.textContent = "опубликована v" + s.published.version; t.appendChild(pc); }
     const act = document.createElement("div"); act.className = "act";
+    // hidden from the site and the game: the Workshop item is gone (after a rights holder's complaint, or anyhow)
+    if (s.block) {
+      const bc = document.createElement("span"); bc.className = "chip no";
+      bc.textContent = s.block === "copyright" ? "заблокирована за нарушение АП" : "Мёртвая страница Мастерской";
+      bc.title = tx(s.block === "copyright" ? "Мод убран из Мастерской после жалобы правообладателя. Песня скрыта с сайта и из игры. Вопросы — к админам сайта." : "Мод песни пропал из Мастерской (удалён, скрыт или забанен). Песня скрыта с сайта и из игры. Выложите мод снова и дайте новую ссылку.");
+      t.appendChild(bc);
+    }
+    if (s.block === "deadws") {
+      const rl = document.createElement("button"); rl.className = "btn"; rl.textContent = "Новая ссылка на мод";
+      rl.onclick = async () => {
+        const ws = prompt(tx("Ссылка на мод в Мастерской (тот же мод песни, выложенный снова):"), ""); if (!ws) return;
+        const r = await fetch("/api/v1/songs/" + s.uuid + "/relink", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workshop: ws }) });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); alert(tx("Не получилось: {0}", j.detail || r.status)); return; }
+        loadSongs();
+      };
+      act.appendChild(rl);
+    }
     const ed = document.createElement("a"); ed.className = "btn main"; ed.textContent = "Редактор"; ed.href = "/editor/" + s.uuid; act.appendChild(ed);
     if (!s.published && ["draft", "built", "rejected"].includes(s.status)) {
       const del = document.createElement("button"); del.className = "btn"; del.textContent = "Удалить";
