@@ -2,9 +2,10 @@ services:
   mlp-stats:
     # the image GitHub Actions builds on every push to main (.github/workflows/docker.yml):
     #   docker compose pull && docker compose up -d
-    # or build it here from the source: docker compose up -d --build
+    # no "build:" here on purpose: "up --build" would build the server folder's (maybe old) source over the pulled image.
+    # To build from the source instead: git pull && docker build -t ghcr.io/shark-vil/gmod-mlp-g5-web:latest . && docker compose up -d
     image: ${MLP_IMAGE:-ghcr.io/shark-vil/gmod-mlp-g5-web:latest}
-    build: .
+    pull_policy: always
     restart: unless-stopped
     env_file: .env
     ports:
