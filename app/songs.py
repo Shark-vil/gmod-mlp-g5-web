@@ -28,7 +28,8 @@ Titles / artists with a word of the admins' BAN_WORDS list are hidden from the p
   POST   /api/v1/songs/{uuid}/build     the working copy -> the song mod: status "built", SHA256 of its files kept
   GET    /api/v1/songs/{uuid}/mod.zip   the song mod (author / admins)
   POST   /api/v1/songs/{uuid}/unbuild   built -> draft
-  POST   /api/v1/songs/{uuid}/submit    { workshop } -> checked with Steam -> pending
+  POST   /api/v1/songs/{uuid}/submit    { workshop } -> checked with Steam -> pending; a draft of a published song that
+                                        only changes the title / artist / cover / preview (meta_only) goes with no build
   POST   /api/v1/songs/{uuid}/revise    approved / rejected -> draft (a new version; the published one stays)
   DELETE /api/v1/songs/{uuid}           the author (never published) or an admin
   admin: GET /api/v1/admin/songs (?status, ?q), POST …/{uuid}/approve, POST …/{uuid}/reject { reason },
@@ -264,6 +265,44 @@ def published(r):
             "cover": f"/api/v1/songs/{r['uuid']}/cover.jpg?v={r['live_version']}"}
 
 
+_SHA = {}  # path -> ( mtime, size, sha256 ): the files' hashes, worked out once per change
+
+
+def _file_sha(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    k = (st.st_mtime_ns, st.st_size)
+    if _SHA.get(path, (None,))[:2] != k:
+        with open(path, "rb") as f:
+            _SHA[path] = (*k, hashlib.sha256(f.read()).hexdigest())
+    return _SHA[path][2]
+
+
+def meta_changes(r):
+    """a new version of a published song that only changes what the site shows (title, artist, cover, preview):
+    the published mod still fits it (the game takes the title and the artist from the site, and checks the mod's
+    files by the published SHA256), so it goes for the audit with no new build / upload.
+    -> ( True, [ what changed… ] ) or ( False, [] ) when the notes, the sound or the length changed (or nothing to compare)"""
+    u = r["uuid"]
+    if not r["live_version"] or not r["live_hashes"] or not r["live_wsid"] or not r["chart"] or not r["live_chart"]:
+        return False, []
+    live_hashes = json.loads(r["live_hashes"])
+    ogg = f"sound/mlp_g5/songs/{u}.ogg"
+    if json.loads(r["chart"]) != json.loads(r["live_chart"]) or r["len"] != r["live_len"] or r["beat"] != r["live_beat"]:
+        return False, []
+    if _file_sha(os.path.join(song_dir(u), "full.ogg")) != live_hashes.get(ogg):
+        return False, []
+    d = song_dir(u)
+    changes = [k for k, a, b in (("title", r["title"], r["live_title"]), ("artist", r["artist"] or "", r["live_artist"] or "")) if a != b]
+    if _file_sha(os.path.join(d, "cover.jpg")) != _file_sha(os.path.join(d, "cover_live.jpg")):
+        changes.append("cover")
+    if _file_sha(os.path.join(d, "preview.ogg")) != _file_sha(os.path.join(d, "preview_live.ogg")):
+        changes.append("preview")
+    return True, changes
+
+
 def working(r):
     """the working copy, for the author / admins"""
     return {"uuid": r["uuid"], "title": r["title"], "artist": r["artist"], "status": r["status"], "owner": r["owner"],
@@ -279,7 +318,18 @@ def working(r):
             "cover": f"/api/v1/songs/{r['uuid']}/cover.jpg?work=1&t={r['updated']}",
             "cover_kind": ("own" if os.path.exists(os.path.join(song_dir(r["uuid"]), "cover_own.flag")) else
                            ("file" if cover_path(r["uuid"]) else "default")),
-            "published": published(r)}
+            "published": published(r),
+            # a draft / a waiting version of a published song with the same notes and sound: no new mod needed
+            **_meta_fields(r)}
+
+
+def _meta_fields(r):
+    if r["status"] == "draft":
+        only, changes = meta_changes(r)
+        return {"meta_only": only, "meta_changes": changes}
+    if r["status"] == "pending" and r["live_hashes"] and r["hashes"] == r["live_hashes"]:
+        return {"meta_only": True, "meta_changes": meta_changes(r)[1]}
+    return {"meta_only": False, "meta_changes": []}
 
 
 def _visible(r, words=None):
@@ -774,9 +824,15 @@ def workshop_item(wsid):
 async def submit(u: str, request: Request):
     r = _row(u)
     user = auth.require_user(request)
-    if user["steamid"] != r["owner"] or r["status"] != "built":
+    meta = False
+    if user["steamid"] == r["owner"] and r["status"] == "draft":
+        # only the title / artist / cover / preview changed: the published mod (the same Workshop item) stays
+        meta, changes = meta_changes(r)
+        if meta and not changes:
+            raise HTTPException(409, "nothing changed since the published version")
+    if user["steamid"] != r["owner"] or (r["status"] != "built" and not meta):
         raise HTTPException(403, "build the mod first (only the author)")
-    body = await request.json()
+    body = await request.json() if not meta else {"workshop": r["live_wsid"]}
     m = WSID_RE.search(str(body.get("workshop", "") or r["wsid"] or "").strip())
     if not m:
         raise HTTPException(400, "a Workshop link (…/filedetails/?id=123…) or its number")
@@ -795,8 +851,11 @@ async def submit(u: str, request: Request):
     if int(d.get("banned") or 0):
         raise HTTPException(400, "Steam has banned this item")
     with _db() as con:
-        con.execute("UPDATE songs SET status = 'pending', wsid = ?, updated = ? WHERE uuid = ?", (wsid, _now(), u))
-    return {"ok": True, "wsid": wsid, "workshop_title": d.get("title")}
+        if meta:
+            con.execute("UPDATE songs SET status = 'pending', wsid = ?, hashes = live_hashes, updated = ? WHERE uuid = ?", (wsid, _now(), u))
+        else:
+            con.execute("UPDATE songs SET status = 'pending', wsid = ?, updated = ? WHERE uuid = ?", (wsid, _now(), u))
+    return {"ok": True, "wsid": wsid, "workshop_title": d.get("title"), "meta_only": meta}
 
 
 # ---------------------------------------------------------------------------------------------- admin

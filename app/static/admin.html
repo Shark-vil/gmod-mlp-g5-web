@@ -110,6 +110,9 @@ function row(s) {
   if (s.published) t.appendChild(el("span", "в игре v" + s.published.version, "chip ok"));
   if (s.hidden) t.appendChild(el("span", "скрыта словом", "chip no"));
   if (s.owner_banned) t.appendChild(el("span", "автор забанен", "chip no"));
+  // a new version that changes only the title / artist / cover / preview: the published mod stays (no new build)
+  const NAMES = { title: "название", artist: "исполнитель", cover: "обложка", preview: "фрагмент для прослушивания" };
+  if (s.status === "pending" && s.meta_only) t.appendChild(el("span", tx("только оформление: {0}", (s.meta_changes || []).map(k => tx(NAMES[k])).join(", ") || "—"), "chip wait"));
   const sub = el("div", null, "sub");
   // separate text nodes: the words get translated (i18n.js), the song's own text stays as it is
   [s.artist, mmss(s.len), s.bpm ? s.bpm + " BPM" : "", s.chart ? s.chart.t.length + " нот" : ""].filter(Boolean).forEach(x => sub.append(x, " · "));
@@ -117,6 +120,7 @@ function row(s) {
   sub.appendChild(a(s.owner_nick || s.owner, s.owner_profile)); sub.append(" (" + s.owner + ") · ", "изменена", " " + when(s.updated));
   if (s.workshop) { sub.append(" · "); sub.appendChild(a("мод " + s.wsid, s.workshop)); }
   if (s.reason) sub.append(" · ", "причина:", " " + s.reason);
+  if (s.published && (s.meta_changes || []).some(k => k === "title" || k === "artist")) sub.append(" · ", "было:", " " + s.published.title + (s.published.artist ? " — " + s.published.artist : ""));
   const au = el("audio"); au.controls = true; au.preload = "none"; au.src = "/api/v1/songs/" + s.uuid + "/full.ogg";
   const act = el("div", null, "act");
   const btn = (text, cls, fn) => { const b = el("button", text, "btn " + (cls || "")); b.onclick = fn; act.appendChild(b); return b; };

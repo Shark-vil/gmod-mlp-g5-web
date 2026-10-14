@@ -272,6 +272,37 @@ function el(tag, text, cls) { const e = document.createElement(tag); if (text) e
 function publishPanel() {
   const box = $("pub"); box.textContent = "";
   box.appendChild(el("h3", "Публикация"));
+  if (song.status === "draft" && song.meta_only) {
+    // a new version of a published song with the same notes and sound: the published mod still fits it
+    const names = { title: "название", artist: "исполнитель", cover: "обложка", preview: "фрагмент для прослушивания" };
+    if (song.meta_changes.length) {
+      box.appendChild(el("p", "Изменено: " + song.meta_changes.map(k => tx(names[k])).join(", ") + ". Ноты и звук те же, что в опубликованной версии, поэтому мод собирать и выкладывать заново не нужно — изменения сразу уйдут на проверку.", "ok"));
+    } else {
+      box.appendChild(el("p", "Ноты и звук те же, что в опубликованной версии. Если поменять только название, исполнителя, обложку или фрагмент для прослушивания, мод собирать заново не нужно — изменения сразу уйдут на проверку."));
+    }
+    box.appendChild(el("p", "Поменяете ноты, длину или звук — понадобится собрать мод и обновить его в Мастерской."));
+    const row = el("div", null, "row");
+    const send = el("button", "Отправить на проверку", "btn main");
+    const msg = el("div", "", "");
+    send.disabled = !song.meta_changes.length;
+    send.onclick = async () => {
+      if (dirty && !(await save())) return;
+      await refreshMeta(false);
+      if (!song.meta_only || !song.meta_changes.length) { publishPanel(); return; }
+      send.disabled = true; msg.className = ""; msg.textContent = "Проверяем мод в Steam…";
+      const r = await fetch("/api/v1/songs/" + UUID + "/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const j = await r.json().catch(() => ({}));
+      send.disabled = false;
+      if (!r.ok) {
+        const why = { 403: "Этот мод выложен другим аккаунтом Steam.", 404: "Steam больше не видит опубликованный мод — проверьте его в Мастерской (скрытый мод тоже не виден)." }[r.status];
+        msg.className = "bad"; msg.textContent = why || ("Не получилось: " + (j.detail || r.status)); return;
+      }
+      song = await (await fetch("/api/v1/songs/" + UUID)).json();
+      $("ed").classList.add("locked"); setStatus("только просмотр"); publishPanel();
+    };
+    row.appendChild(send); box.appendChild(row); box.appendChild(msg);
+    return;
+  }
   if (song.status === "draft") {
     box.appendChild(el("p", "Когда ноты готовы, соберите мод песни: сайт упакует звук и ноты, а вы выложите его в Мастерскую Steam. После сборки править нельзя (можно вернуться к правке, тогда мод придётся собрать заново)."));
     const b = el("button", "Собрать мод", "btn main");
@@ -338,7 +369,7 @@ function publishPanel() {
   const link = (text, href) => { const a = el("a", text); a.href = href; a.target = "_blank"; a.rel = "noopener"; return a; };
   const pub = song.published;
   if (song.status === "pending") {
-    const p = el("p", pub ? `Новая версия на проверке. Пока её не одобрят, в игре и в списке — версия ${pub.version}. ` : "Песня на проверке. После одобрения она появится в общем списке песен и в игре. ", "ok");
+    const p = el("p", pub ? (song.meta_only ? `Новая версия на проверке (только оформление, мод тот же). Пока её не одобрят, в игре и в списке — версия ${pub.version}. ` : `Новая версия на проверке. Пока её не одобрят, в игре и в списке — версия ${pub.version}. `) : "Песня на проверке. После одобрения она появится в общем списке песен и в игре. ", "ok");
     if (song.workshop) p.appendChild(link("Мод в Мастерской", song.workshop));
     box.appendChild(p);
     return;
@@ -359,7 +390,7 @@ function publishPanel() {
     p.appendChild(link("Страница песни", "/songs/" + UUID)); p.append(" · ");
     if (song.workshop) p.appendChild(link("Мод в Мастерской", song.workshop));
     box.appendChild(p);
-    box.appendChild(el("p", "Нужно поправить ноты? «Изменить» откроет новую версию: опубликованная остаётся в игре, пока новую не одобрят. Потом соберите мод и обновите его в Мастерской — звук загружать заново не нужно."));
+    box.appendChild(el("p", "Нужно поправить ноты? «Изменить» откроет новую версию: опубликованная остаётся в игре, пока новую не одобрят. Потом соберите мод и обновите его в Мастерской — звук загружать заново не нужно. Если поменять только название, исполнителя или обложку, мод собирать не нужно — новая версия сразу уйдёт на проверку."));
     box.appendChild(revise("Изменить", null));
     return;
   }
@@ -912,11 +943,11 @@ $("coverFile").onchange = async () => {
   const r = await fetch("/api/v1/songs/" + UUID + "/cover", { method: "POST", body: fd });
   $("coverFile").value = "";
   if (!r.ok) { const j = await r.json().catch(() => ({})); setStatus("обложка не загрузилась: " + (j.detail || r.status)); return; }
-  song = await (await fetch("/api/v1/songs/" + UUID)).json(); showCover(); setStatus("обложка сохранена");
+  song = await (await fetch("/api/v1/songs/" + UUID)).json(); showCover(); publishPanel(); setStatus("обложка сохранена");
 };
 $("coverDrop").onclick = async () => {
   await fetch("/api/v1/songs/" + UUID + "/cover", { method: "DELETE" });
-  song = await (await fetch("/api/v1/songs/" + UUID)).json(); showCover(); setStatus("своя обложка убрана");
+  song = await (await fetch("/api/v1/songs/" + UUID)).json(); showCover(); publishPanel(); setStatus("своя обложка убрана");
 };
 
 // ------------------------------------------------------------------ trim: a piece of the uploaded song
@@ -956,13 +987,22 @@ function chartNotes(ch) {
   const L = new Set(ch.large);
   return ch.t.map((t, i) => ({ t, hold: L.has(i + 1), key: (ch.keys && ch.keys[i]) || "", len: L.has(i + 1) ? ((ch.lens && ch.lens[i]) || HOLD) : 0 }));
 }
+// the publishing panel of a published song's new version follows what changed (title / cover… or the notes)
+async function refreshMeta(redraw = true) {
+  if (!song || song.status !== "draft" || !song.published) return;
+  const s = await (await fetch("/api/v1/songs/" + UUID)).json().catch(() => null);
+  if (!s) return;
+  const was = JSON.stringify([song.meta_only, song.meta_changes]);
+  song.meta_only = s.meta_only; song.meta_changes = s.meta_changes || [];
+  if (redraw && was !== JSON.stringify([song.meta_only, song.meta_changes])) publishPanel();
+}
 async function save() {
   if (problems().some(p => p.hard)) { setStatus("исправьте отмеченные ⛔ ноты"); return false; }
   setStatus("сохраняется…");
   const body = { t: notes.map(n => n.t), large: notes.map((n, i) => n.hold ? i + 1 : 0).filter(Boolean), keys: notes.map(n => n.hold ? "" : (n.key || "")), lens: notes.map(n => n.hold ? hl(n) : 0),
     preview_start: +$("pstart").value, preview_len: +$("plen").value, title: $("title").value, artist: $("artist").value };
   const r = await fetch("/api/v1/songs/" + UUID + "/chart", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (r.ok) { dirty = false; setStatus("сохранено"); return true; }
+  if (r.ok) { dirty = false; setStatus("сохранено"); refreshMeta(); return true; }
   const j = await r.json().catch(() => ({}));
   setStatus("не сохранилось: " + (j.detail || r.status));
   return false;
