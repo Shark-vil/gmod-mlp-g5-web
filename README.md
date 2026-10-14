@@ -13,8 +13,16 @@
 
 ```sh
 cp .env.example .env      # всё необязательно; MLP_ADMIN_STEAMIDS — ваш SteamID64 (админ)
+docker compose pull       # готовый образ ghcr.io/shark-vil/gmod-mlp-g5-web:latest
 docker compose up -d      # сервис на порту MLP_PORT (по умолчанию 8080)
 ```
+
+Обновление: `git pull && docker compose pull && docker compose up -d` (собирать на сервере не нужно). Образ собирает
+GitHub Actions (`.github/workflows/docker.yml`) на каждый пуш в `main` — `latest`, `sha-<коммит>` — и на тег
+`v1.2.3` — `1.2.3`, `1.2`; перед публикацией образ запускается и должен ответить на `/health`. Пакет в GitHub
+Container Registry сначала приватный: сделайте его публичным (Packages → gmod-mlp-g5-web → Package settings →
+Change visibility) или войдите на сервере `docker login ghcr.io` с токеном `read:packages`. Свой образ —
+`MLP_IMAGE=…` в `.env`; собрать из исходников здесь же — `docker compose up -d --build`.
 
 Страница рекордов — `/`. Вход на сайт — через Steam (OpenID: сайт получает только SteamID64, ник и аватар берёт с публичного профиля). Документация API (`/api/docs`) и админ-запросы — только для админов: SteamID64 в `MLP_ADMIN_STEAMIDS`, после входа через Steam. `MLP_PUBLIC_URL` — адрес сайта для ссылки возврата из Steam. Официальный адрес, который мод использует по
 умолчанию: `https://gmod-mlp-g5.itpony.pro`.
