@@ -15,7 +15,8 @@
   .tools select, .tools input[type=number] { width: auto; padding: 5px 8px; }
   .time { font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; font-size: 14px; }
   .lane { position: relative; margin-top: 8px; padding: 0; overflow: hidden; }
-  canvas { display: block; width: 100%; height: 230px; touch-action: none; cursor: crosshair; }
+  canvas { display: block; width: 100%; height: 270px; touch-action: none; cursor: crosshair; }
+  canvas.erase { cursor: not-allowed; } canvas.cycle { cursor: pointer; } canvas.band { cursor: col-resize; }
   input[type=range].scroll { width: 100%; margin: 6px 0 0; padding: 0; accent-color: var(--pink); }
   .side { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
   .side .card { padding: 10px 12px; }
@@ -27,11 +28,19 @@
   .btn.del { background: #fbdcdc; color: #8a2a2a; }
   .btn.undo { background: #e6dcff; color: #4a2c8a; }
   @media (prefers-color-scheme: dark) { .btn.hold { background: #5a4710; color: #ffe39a; } .btn.del { background: #552626; color: #ffc9c9; } .btn.undo { background: #3b2e63; color: #d9ccff; } }
-  .keys { display: inline-flex; gap: 4px; align-items: center; }
-  .keys .btn { min-width: 36px; padding: 6px 8px; font-weight: 700; }
-  .keys .btn.on { outline: 2px solid var(--text); outline-offset: -2px; }
-  .keys .k-up { color: #1f6fd1; } .keys .k-down { color: #128a42; } .keys .k-left { color: #c56a00; } .keys .k-right { color: #c4246b; } .keys .k-act { color: #7a3ad6; }
-  @media (prefers-color-scheme: dark) { .keys .k-up { color: #7db8ff; } .keys .k-down { color: #6fe39a; } .keys .k-left { color: #ffb35c; } .keys .k-right { color: #ff8cc0; } .keys .k-act { color: #c9a4ff; } }
+  .keyrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; width: 100%; padding: 8px 0 2px; border-top: 1px solid var(--line); margin-top: 2px; }
+  .keys { display: inline-flex; gap: 6px; align-items: center; }
+  /* the direction buttons: filled with the note's colour, a big white sign (the same look as the notes on the lane) */
+  .keys .btn { min-width: 46px; height: 42px; padding: 0 10px; font-size: 22px; line-height: 42px; font-weight: 800; color: #fff; text-align: center;
+               box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .18); transition: transform .08s; }
+  .keys .btn:hover { transform: translateY(-1px); }
+  .keys .btn.on { box-shadow: 0 0 0 3px var(--card), 0 0 0 6px var(--text); transform: scale(1.06); }
+  .keys .k-up { background: #1f6fd1; } .keys .k-down { background: #128a42; } .keys .k-left { background: #b05e00; }
+  .keys .k-right { background: #c4246b; } .keys .k-act { background: #7a3ad6; } .keys .k-any { background: #6b5a86; font-size: 20px; }
+  .seg { display: inline-flex; background: var(--row); border-radius: 999px; padding: 3px; gap: 2px; }
+  .seg button { border: 0; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; background: transparent; color: var(--text); cursor: pointer; }
+  .seg button.on { background: var(--text); color: var(--card); font-weight: 600; }
+  .keyhint { font-size: 13px; color: var(--muted); }
   .btn.rec { background: #c62832; color: #fff; font-weight: 600; }
   .btn.rec.on { animation: blink 1s steps(2) infinite; }
   @keyframes blink { 50% { opacity: .55; } }
@@ -59,7 +68,7 @@
   .pub a { color: var(--text); }
   .pub .ok { color: #20683a; } .pub .bad { color: #b3471f; }
   @media (prefers-color-scheme: dark) { .pub .ok { color: #9fe0b5; } .pub .bad { color: #ffb08a; } }
-  .locked .tools button:not(#play):not(#test):not(#pplay), .locked #title, .locked #artist, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #keys, .locked #rec, .locked #coverUp, .locked #coverDrop, .locked #recReplace { pointer-events: none; opacity: .45; }
+  .locked .tools button:not(#play):not(#test):not(#pplay), .locked #title, .locked #artist, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #keys, .locked .seg, .locked #mirror, .locked #fill, .locked #rec, .locked #coverUp, .locked #coverDrop, .locked #recReplace { pointer-events: none; opacity: .45; }
   @media (max-width: 760px) { .head, .side { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -90,23 +99,33 @@
       <span class="time" id="time">0:00.0</span>
       <span class="sep"></span>
       <label>Масштаб <button class="btn" id="zout" title="−">−</button><button class="btn" id="zin" title="+">+</button></label>
+      <label title="Медленнее — проще попасть в такт (звук ниже). На «Проверить» не действует">Скорость <select id="rate"><option value="1" selected>1×</option><option value="0.75">0,75×</option><option value="0.5">0,5×</option></select></label>
+      <label title="Щелчки на каждом ударе во время игры (M)"><input type="checkbox" id="metro" style="width:auto"> Метроном</label>
       <label>Привязка <select id="snap"><option value="0">нет</option><option value="1" selected>к удару</option><option value="2">½ удара</option><option value="4">¼ удара</option></select></label>
       <span class="sep"></span>
       <button class="btn hold" id="hold" title="H">Удержание</button>
       <button class="btn del" id="del" title="Delete">Удалить ноту</button>
       <button class="btn undo" id="undo" title="Ctrl+Z">↶ Отменить</button>
       <span class="sep"></span>
-      <span class="keys" id="keys" title="Направление выбранной ноты (1–5, 0 — случайно)">
-        <button class="btn k-up" data-k="up" title="1">↑</button><button class="btn k-down" data-k="down" title="2">↓</button>
-        <button class="btn k-left" data-k="left" title="3">←</button><button class="btn k-right" data-k="right" title="4">→</button>
-        <button class="btn k-act" data-k="act" title="5">E</button><button class="btn" data-k="" title="0 — своя случайная клавиша в каждой игре">🎲</button>
-      </span>
       <button class="btn" id="auto">Расставить автоматически</button>
       <button class="btn del" id="clear" title="Убрать все ноты">Очистить все ноты</button>
       <span class="sep"></span>
       <button class="btn main" id="test">Проверить</button>
       <button class="btn main" id="save">Сохранить</button>
       <span class="status" id="status"></span>
+      <div class="keyrow">
+        <span class="seg" role="group" aria-label="Что меняют кнопки направления">
+          <button id="mBrush" title="B — переключить">🖌 Кисть: новые ноты</button><button id="mEdit" title="B — переключить">✎ Правка: выбранные ноты</button>
+        </span>
+        <span class="keys" id="keys">
+          <button class="btn k-up" data-k="up" title="Вверх (1)">↑</button><button class="btn k-down" data-k="down" title="Вниз (2)">↓</button>
+          <button class="btn k-left" data-k="left" title="Влево (3)">←</button><button class="btn k-right" data-k="right" title="Вправо (4)">→</button>
+          <button class="btn k-act" data-k="act" title="Действие: Пробел / E (5)">E</button><button class="btn k-any" data-k="" title="Случайно: в каждой игре своя клавиша (0)">🎲</button>
+        </span>
+        <button class="btn" id="mirror" title="Зеркало выбранных: ← ↔ →, ↑ ↔ ↓ (X)">⇄ Зеркало</button>
+        <button class="btn" id="fill" title="Ноты на каждом шаге привязки между первой и последней выбранной (F)">⋯ Заполнить по сетке</button>
+        <span class="keyhint" id="keyhint"></span>
+      </div>
     </div>
     <div class="side">
       <div class="card">
@@ -163,11 +182,21 @@
       </div>
       <div class="card">
         <h3>Как править</h3>
-        <p>Клик по нижней части дорожки — поставить ноту или выбрать её; тяните, чтобы сдвинуть. <kbd>H</kbd> — удержание,
-          <kbd>Delete</kbd> — удалить, <kbd>Ctrl</kbd>+<kbd>Z</kbd> — отменить, <kbd>Пробел</kbd> — играть / пауза.
-          Клик по верхней части (волна) — перемотка; колесо — прокрутка, <kbd>Ctrl</kbd>+колесо — масштаб.</p>
-        <p>Направление ноты: выберите ноту и нажмите ↑ ↓ ← → E (или <kbd>1</kbd>–<kbd>5</kbd>). 🎲 (<kbd>0</kbd>, так по умолчанию) —
-          в каждой игре своя случайная клавиша, как в самой игре. Удержание — любая клавиша.</p>
+        <p>Клик по нижней части дорожки — поставить ноту или выбрать её; тяните, чтобы сдвинуть (выбранные — все вместе).
+          Клик по волне — перемотка; колесо — прокрутка, <kbd>Ctrl</kbd>+колесо — масштаб.</p>
+        <p><b>Кисть</b> — выберите направление и ставьте ноты подряд, каждая получит его. <b>Правка</b> — кнопки меняют
+          выбранные ноты. Направления: <kbd>1</kbd>–<kbd>5</kbd> = ↑ ↓ ← → E, <kbd>0</kbd> = 🎲 (в каждой игре своя
+          случайная клавиша), <kbd>Q</kbd> — следующее по кругу, <kbd>B</kbd> — Кисть / Правка. Удержание — любая клавиша.</p>
+        <p><kbd>Shift</kbd>+клик — добавить / убрать ноту из выбора, <kbd>Shift</kbd>+протянуть — выбрать отрезок,
+          <kbd>Ctrl</kbd>+<kbd>A</kbd> — все, <kbd>Esc</kbd> — снять выбор. <kbd>Alt</kbd>+клик (или протянуть) — стереть.
+          <kbd>Ctrl</kbd>+клик по ноте — следующее направление. <kbd>H</kbd> — удержание, <kbd>Delete</kbd> — удалить выбранные.
+          <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> — сдвинуть выбранные на шаг привязки, <kbd>←</kbd> <kbd>→</kbd> — к соседней ноте.
+          <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> — копировать выбранные и вставить с места курсора (повторить
+          припев). <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> — отменить / вернуть, <kbd>Ctrl</kbd>+<kbd>S</kbd> —
+          сохранить, <kbd>Пробел</kbd> — играть / пауза.</p>
+        <p><kbd>X</kbd> — зеркало выбранных (← ↔ →, ↑ ↔ ↓): припев повтором наоборот. <kbd>F</kbd> — заполнить по сетке:
+          между первой и последней выбранной нотой ставится нота на каждом шаге привязки (направление — кисть).
+          <kbd>M</kbd> — метроном, «Скорость» 0,75× / 0,5× — расставлять медленно (и записывать тоже).</p>
         <div id="warns"></div>
       </div>
     </div>
@@ -183,15 +212,26 @@ const HOLD = 1.94, MIN_GAP = 0.25, GOOD_GAP = 0.43;      // the game: hold lengt
 const PERFECT = 0.09, GOOD = 0.2, APPROACH = 1.7, TICK = 0.485 / 4;
 let song = null, buf = null, ctx = null, peaks = null;
 let notes = [];                 // [{ t, hold }]
-let sel = -1, zoom = 140, view = 0, dirty = false, undo = [];
+let sel = -1, zoom = 140, view = 0, dirty = false, undo = [], redo = [];
+let picked = new Set();         // the selected notes (objects); sel = the main one (index), the one keys / arrows act on
+let brush = "", keyMode = "brush", hover = null, band = null, clip = [];
 let playing = null;             // { src, at, from }
 const cv = $("cv"), g = cv.getContext("2d");
 
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function mmss(t, dec) { t = Math.max(0, t); const m = Math.floor(t / 60), s = t - m * 60; return m + ":" + (dec ? s.toFixed(1).padStart(4, "0") : String(Math.floor(s)).padStart(2, "0")); }
 function setStatus(t) { $("status").textContent = t; }
-function mark() { dirty = true; setStatus("есть несохранённые изменения"); checkWarnings(); draw(); }
-function snapshot() { undo.push(JSON.stringify(notes)); if (undo.length > 200) undo.shift(); }
+function mark() { syncSel(); dirty = true; setStatus("есть несохранённые изменения"); checkWarnings(); draw(); }
+function snapshot() { undo.push(JSON.stringify(notes)); if (undo.length > 200) undo.shift(); redo = []; }
+function pick(i, add) {
+  if (!add) picked.clear();
+  if (i >= 0 && notes[i]) { picked.add(notes[i]); sel = i; } else if (!add) sel = -1;
+}
+function syncSel() {             // after notes were replaced / removed / sorted
+  for (const n of [...picked]) if (!notes.includes(n)) picked.delete(n);
+  if (sel < 0 || !picked.has(notes[sel])) sel = notes.findIndex(n => picked.has(n));
+}
+function selNotes() { return notes.filter(n => picked.has(n)); }
 
 // ------------------------------------------------------------------ loading
 async function load() {
@@ -333,21 +373,40 @@ function buildPeaks(b) {
 }
 
 // ------------------------------------------------------------------ playback (Web Audio: sample-exact time)
-function now() { return playing ? playing.from + (ctx.currentTime - playing.at) : (window._pos || 0); }
+function now() { return playing ? playing.from + (ctx.currentTime - playing.at) * playing.rate : (window._pos || 0); }
 function play(from, until) {
   stop();
   if (ctx.state === "suspended") ctx.resume();
   const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
   from = Math.max(0, Math.min(from, buf.duration - 0.05));
+  const rate = +$("rate").value || 1;
+  src.playbackRate.value = rate;
   src.start(0, from, until ? until - from : undefined);
-  playing = { src, at: ctx.currentTime, from };
+  playing = { src, at: ctx.currentTime, from, rate, beat: -1 };
   src.onended = () => { if (playing && playing.src === src) { window._pos = now(); playing = null; $("play").textContent = "▶ Играть"; if (rec) recStop(); } };
   $("play").textContent = "❚❚ Пауза";
   requestAnimationFrame(tick);
 }
 function stop() { if (playing) { window._pos = now(); const p = playing; playing = null; try { p.src.stop(); } catch (e) {} } $("play").textContent = "▶ Играть"; }
+// the metronome: a short click on each beat of the grid, scheduled a little ahead (sample-exact, like the song)
+function metronome() {
+  if (!$("metro").checked || !playing) return;
+  const bs = beatGrid(), t = now(), ahead = t + 0.25 * playing.rate;
+  let i = playing.beat + 1;
+  if (playing.beat < 0) { i = 0; while (i < bs.length && bs[i] < t - 0.01) i++; }
+  for (; i < bs.length && bs[i] <= ahead; i++) {
+    const at = playing.at + (bs[i] - playing.from) / playing.rate;
+    if (at < ctx.currentTime - 0.005) { playing.beat = i; continue; }
+    const o = ctx.createOscillator(), v = ctx.createGain();
+    o.frequency.value = i % 4 === 0 ? 1650 : 1100;
+    v.gain.setValueAtTime(0.0001, at); v.gain.exponentialRampToValueAtTime(0.5, at + 0.002); v.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
+    o.connect(v); v.connect(ctx.destination); o.start(at); o.stop(at + 0.06);
+    playing.beat = i;
+  }
+}
 function tick() {
   if (!playing) { draw(); return; }
+  metronome();
   const t = now();
   const w = cv.clientWidth / zoom;
   if (t > view + w * 0.85) setView(t - w * 0.15);   // follow the playhead
@@ -406,26 +465,34 @@ function draw() {
   g.fillStyle = C.grid; g.fillRect(0, Math.round(wh), W, 1);
   g.fillStyle = C.muted; g.font = "11px system-ui"; g.textAlign = "left";
   for (let s = Math.ceil(view); s < T(W); s++) if (s % (zoom > 60 ? 5 : 15) === 0) g.fillText(mmss(s), X(s) + 3, wh - 4);
-  // notes: holds as a bar of their length, a dot at the press
+  // notes: a round sign in the note's colour with its direction inside (like the buttons); holds: a bar of their length.
+  // Big while there's room; smaller only when zoomed far out, so neighbours never overlap.
+  // the size: from the usual gap between the notes in view (the median), capped per note by its own neighbours
+  const gaps = [];
+  for (let i = 1; i < notes.length; i++) if (X(notes[i].t) > -40 && X(notes[i - 1].t) < W + 40) gaps.push(notes[i].t - notes[i - 1].t);
+  gaps.sort((a, b) => a - b);
+  const Rg = Math.max(7, Math.min(17, (gaps.length ? gaps[gaps.length >> 1] : 1) * zoom / 2 - 3));
+  const radius = i => {
+    const l = i > 0 ? notes[i].t - notes[i - 1].t : 9, r = i < notes.length - 1 ? notes[i + 1].t - notes[i].t : 9;
+    return Math.max(4, Math.min(Rg, Math.min(l, r) * zoom / 2 - 1));
+  };
   notes.forEach((n, i) => {
     const x = X(n.t); if (x < -HOLD * zoom - 20 || x > W + 20) return;
-    if (n.hold) { g.fillStyle = C.pink; g.globalAlpha = 0.35; g.beginPath(); g.roundRect(x, ny - 9, HOLD * zoom, 18, 9); g.fill(); g.globalAlpha = 1; }
-    g.beginPath(); g.arc(x, ny, i === sel ? 10 : 8, 0, Math.PI * 2);
-    g.fillStyle = C.bg; g.fill();
-    g.beginPath(); g.arc(x, ny, i === sel ? 8 : 6, 0, Math.PI * 2);
-    g.fillStyle = n.hold ? C.pink : (n.key ? COL[n.key] : C.mark); g.fill();
-    if (i === sel) { g.strokeStyle = C.text; g.lineWidth = 2; g.beginPath(); g.arc(x, ny, 12, 0, Math.PI * 2); g.stroke(); }
-    if (!n.hold && zoom >= 60) {   // the key above the note
-      g.fillStyle = n.key ? COL[n.key] : C.muted; g.font = "bold 13px system-ui"; g.textAlign = "center";
-      g.fillText({ up: "↑", down: "↓", left: "←", right: "→", act: "E" }[n.key] || "?", x, ny - 16);
-    }
+    const R = radius(i);
+    if (n.hold) { g.fillStyle = C.pink; g.globalAlpha = 0.35; g.beginPath(); g.roundRect(x, ny - R * 0.8, HOLD * zoom, R * 1.6, R * 0.8); g.fill(); g.globalAlpha = 1; }
+    noteSign(x, ny, R, n.hold ? "hold" : n.key, C, picked.has(n), i === sel);
   });
+  if (band) { const a = X(Math.min(band.a, band.b)), b = X(Math.max(band.a, band.b)); g.fillStyle = C.lilac; g.globalAlpha = 0.18; g.fillRect(a, wh, b - a, H - wh); g.globalAlpha = 1; }
+  // the brush: where a click puts the next note, and with what
+  if (hover && !drag && !band && !playing && !locked() && hover.y > wh && !hover.mod && noteAt(hover.x, hover.y) < 0) {
+    g.globalAlpha = 0.35; noteSign(X(snapT(T(hover.x))), ny, Rg, keyMode === "brush" ? brush : "", C, false, false); g.globalAlpha = 1;
+  }
   // the notes being recorded right now (ringed, on top)
   (window._recPreview || []).forEach(n => {
     const x = X(n.t); if (x < -20 || x > W + 20) return;
     if (n.hold) { g.fillStyle = C.pink; g.globalAlpha = 0.35; g.beginPath(); g.roundRect(x, ny - 9, HOLD * zoom, 18, 9); g.fill(); g.globalAlpha = 1; }
-    g.beginPath(); g.arc(x, ny, 7, 0, Math.PI * 2); g.fillStyle = n.hold ? C.pink : COL[n.key]; g.fill();
-    g.strokeStyle = "#e8323c"; g.lineWidth = 2; g.beginPath(); g.arc(x, ny, 11, 0, Math.PI * 2); g.stroke();
+    noteSign(x, ny, 12, n.hold ? "hold" : n.key, C, false, false);
+    g.strokeStyle = "#e8323c"; g.lineWidth = 2.5; g.beginPath(); g.arc(x, ny, 16, 0, Math.PI * 2); g.stroke();
   });
   showKeys();
   // playhead
@@ -434,40 +501,110 @@ function draw() {
   $("time").textContent = mmss(now(), true);
 }
 
+// a note's sign: a coloured disc, a white arrow / E / ? inside (hold: a white ring); picked ones get an outline
+const KCOL = { up: "#1f6fd1", down: "#128a42", left: "#b05e00", right: "#c4246b", act: "#7a3ad6", "": "#6b5a86" };
+const ROT = { up: 0, right: Math.PI / 2, down: Math.PI, left: -Math.PI / 2 };
+function noteSign(x, y, R, key, C, on, main) {
+  g.beginPath(); g.arc(x, y, R + 2, 0, Math.PI * 2); g.fillStyle = C.bg; g.fill();
+  g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2); g.fillStyle = key === "hold" ? C.pink : KCOL[key || ""]; g.fill();
+  if (on) { g.strokeStyle = C.text; g.lineWidth = main ? 3 : 2; g.beginPath(); g.arc(x, y, R + 4.5, 0, Math.PI * 2); g.stroke(); }
+  if (R < 6) return;
+  g.fillStyle = "#fff"; g.strokeStyle = "#fff";
+  if (key in ROT) {
+    g.save(); g.translate(x, y); g.rotate(ROT[key]);
+    const h = R * 0.62, w = Math.max(2, R * 0.2);
+    g.lineWidth = w; g.lineCap = "round"; g.beginPath(); g.moveTo(0, h * 0.95); g.lineTo(0, -h * 0.25); g.stroke();
+    g.beginPath(); g.moveTo(0, -h); g.lineTo(h * 0.72, -h * 0.12); g.lineTo(-h * 0.72, -h * 0.12); g.closePath(); g.fill();
+    g.restore();
+  } else if (key === "hold") {
+    g.lineWidth = Math.max(2, R * 0.18); g.beginPath(); g.arc(x, y, R * 0.45, 0, Math.PI * 2); g.stroke();
+  } else {
+    g.font = `800 ${Math.round(R * 1.15)}px system-ui, sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(key === "act" ? "E" : "?", x, y + R * 0.06); g.textBaseline = "alphabetic";
+  }
+}
+
 // ------------------------------------------------------------------ editing
 function noteAt(x, y) {
   const H = cv.clientHeight, wh = H * WAVE_H, ny = wh + (H - wh) / 2;
   if (y < wh) return -1;
-  let best = -1, bd = 12;
-  notes.forEach((n, i) => { const d = Math.abs(X(n.t) - x); if (d < bd && Math.abs(y - ny) < 26) { bd = d; best = i; } });
+  let best = -1, bd = Math.max(12, Math.min(18, zoom * GOOD_GAP / 2));
+  notes.forEach((n, i) => { const d = Math.abs(X(n.t) - x); if (d < bd && Math.abs(y - ny) < 30) { bd = d; best = i; } });
   return best;
 }
-let drag = null;
+let drag = null, erased = false;
 const locked = () => song && song.status !== "draft";
+const ORDER = ["up", "down", "left", "right", "act", ""];
+const nextKey = k => ORDER[(ORDER.indexOf(k || "") + 1) % ORDER.length];
+function eraseAt(x, y) { const i = noteAt(x, y); if (i >= 0) { notes.splice(i, 1); syncSel(); erased = true; checkWarnings(); draw(); } }
+function lanePos(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function modCursor(e) {           // the lane's cursor tells what a click with this key does
+  if (!hover) return;
+  hover.mod = e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
+  cv.className = e.altKey ? "erase" : (e.ctrlKey || e.metaKey) ? "cycle" : e.shiftKey ? "band" : "";
+}
 cv.addEventListener("pointerdown", e => {
-  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  const { x, y } = lanePos(e);
   if (y < cv.clientHeight * WAVE_H) {           // the waveform: seek
     const t = Math.max(0, Math.min(song.len, T(x)));
     if (playing) play(t); else { window._pos = t; draw(); }
     return;
   }
   if (locked()) return;
+  cv.setPointerCapture(e.pointerId);
   const i = noteAt(x, y);
-  if (i >= 0) { sel = i; snapshot(); drag = { i, moved: false }; cv.setPointerCapture(e.pointerId); draw(); return; }
-  snapshot();
+  if (e.altKey) { e.preventDefault(); snapshot(); erased = false; drag = { erase: true }; eraseAt(x, y); return; }   // the eraser
+  if ((e.ctrlKey || e.metaKey) && i >= 0) {     // the next direction: this note (and the picked ones with it)
+    const n = notes[i];
+    if (n.hold) { setStatus("у удержания любая клавиша"); return; }
+    snapshot(); const k = nextKey(n.key);
+    (picked.has(n) ? selNotes() : [n]).forEach(m => { if (!m.hold) m.key = k; });
+    if (!picked.has(n)) pick(i);
+    mark(); showKeys(); return;
+  }
+  if (e.shiftKey) {                             // add / remove one, or drag out a stretch
+    if (i >= 0) { const n = notes[i]; if (picked.has(n)) { picked.delete(n); syncSel(); } else pick(i, true); draw(); showKeys(); return; }
+    band = { a: T(x), b: T(x), keep: new Set(picked) }; return;
+  }
+  if (i >= 0) {
+    const n = notes[i];
+    if (!picked.has(n) || picked.size < 2) pick(i); else sel = i;   // a picked group moves together
+    snapshot();
+    drag = { n, t0: n.t, moved: false, from: new Map(selNotes().map(m => [m, m.t])) };
+    draw(); showKeys(); return;
+  }
   const t = snapT(T(x));
-  notes.push({ t, hold: false, key: "" }); notes.sort((a, b) => a.t - b.t);
-  sel = notes.findIndex(n => n.t === t);
-  mark();
+  const same = notes.findIndex(m => Math.abs(m.t - t) < 0.001);   // the snapped place is taken: pick that note
+  if (same >= 0) { pick(same); draw(); showKeys(); return; }
+  snapshot();
+  const n = { t, hold: false, key: keyMode === "brush" ? brush : "" };
+  notes.push(n); notes.sort((a, b) => a.t - b.t);
+  pick(notes.indexOf(n));
+  mark(); showKeys();
 });
 cv.addEventListener("pointermove", e => {
-  if (!drag) return;
-  const r = cv.getBoundingClientRect();
-  notes[drag.i].t = snapT(T(e.clientX - r.left)); drag.moved = true; draw();
+  const { x, y } = lanePos(e);
+  hover = { x, y }; modCursor(e);
+  if (band) {
+    band.b = T(x);
+    const a = Math.min(band.a, band.b), b = Math.max(band.a, band.b);
+    picked = new Set(band.keep); notes.forEach(n => { if (n.t >= a && n.t <= b) picked.add(n); });
+    sel = notes.findIndex(n => picked.has(n)); draw(); showKeys(); return;
+  }
+  if (drag && drag.erase) { eraseAt(x, y); return; }
+  if (drag) {
+    const dt = snapT(T(x)) - drag.t0;
+    for (const [m, t] of drag.from) m.t = Math.max(0, Math.min(song.len, Math.round((t + dt) * 1000) / 1000));
+    drag.moved = dt !== 0; draw(); return;
+  }
+  if (!playing) draw();
 });
+cv.addEventListener("pointerleave", () => { hover = null; if (!playing) draw(); });
 cv.addEventListener("pointerup", () => {
+  if (band) { band = null; draw(); setStatus(picked.size ? `выбрано нот: ${picked.size}` : ""); return; }
   if (!drag) return;
-  if (drag.moved) { const n = notes[drag.i]; notes.sort((a, b) => a.t - b.t); sel = notes.indexOf(n); mark(); } else undo.pop();
+  if (drag.erase) { if (erased) mark(); else undo.pop(); drag = null; return; }
+  if (drag.moved) { notes.sort((a, b) => a.t - b.t); sel = notes.indexOf(drag.n); mark(); } else undo.pop();
   drag = null;
 });
 cv.addEventListener("wheel", e => {
@@ -479,30 +616,143 @@ cv.addEventListener("wheel", e => {
 $("scroll").oninput = () => { const w = cv.clientWidth / zoom; setView((song.len - w) * $("scroll").value / 1000); draw(); };
 $("zin").onclick = () => { const c = view + cv.clientWidth / zoom / 2; zoom = Math.min(800, zoom * 1.4); setView(c - cv.clientWidth / zoom / 2); draw(); };
 $("zout").onclick = () => { const c = view + cv.clientWidth / zoom / 2; zoom = Math.max(20, zoom / 1.4); setView(c - cv.clientWidth / zoom / 2); draw(); };
+
+// mirror: ← ↔ →, ↑ ↔ ↓ for the picked notes (E / 🎲 / holds stay)
+const MIRROR = { left: "right", right: "left", up: "down", down: "up" };
+function mirrorNotes() {
+  if (locked()) return;
+  const ns = selNotes().filter(n => MIRROR[n.key]);
+  if (!ns.length) { setStatus(picked.size ? "в выбранных нет стрелок" : "выберите ноты (Shift+протянуть)"); return; }
+  snapshot(); ns.forEach(n => n.key = MIRROR[n.key]); mark(); setStatus(`отзеркалено нот: ${ns.length}`);
+}
+// fill: a note on every snap step (a beat without snapping) between the first and the last picked note
+function fillNotes() {
+  if (locked()) return;
+  const ns = selNotes();
+  if (ns.length < 2) { setStatus("выберите отрезок: Shift+протянуть или две ноты Shift+кликом"); return; }
+  const a = ns[0].t, b = ns[ns.length - 1].t, div = +$("snap").value || 1, bs = beatGrid();
+  const pts = [];
+  if (bs.length > 1) {
+    for (let i = 0; i < bs.length - 1; i++) { const st = (bs[i + 1] - bs[i]) / div; for (let k = 0; k < div; k++) pts.push(bs[i] + k * st); }
+    pts.push(bs[bs.length - 1]);
+  } else { const st = (song.beat || 0.5) / div; for (let t = a; t <= b + 1e-6; t += st) pts.push(t); }
+  const blocked = t => notes.some(n => Math.abs(n.t - t) < MIN_GAP || (n.hold && t > n.t && t < n.t + HOLD + 0.05));
+  const add = [];
+  pts.forEach(t => { t = Math.round(t * 1000) / 1000; if (t > a + 0.001 && t < b - 0.001 && !blocked(t) && !add.some(m => Math.abs(m.t - t) < MIN_GAP)) add.push({ t, hold: false, key: keyMode === "brush" ? brush : "" }); });
+  if (!add.length) { setStatus("свободных мест на сетке между ними нет"); return; }
+  snapshot(); notes = notes.concat(add).sort((x, y) => x.t - y.t);
+  add.forEach(n => picked.add(n)); mark(); setStatus(`добавлено нот: ${add.length}`);
+}
+$("mirror").onclick = mirrorNotes; $("fill").onclick = fillNotes;
+["snap", "rate", "metro"].forEach(id => $(id).addEventListener("change", () => $(id).blur()));   // the editor's keys work right after
+$("metro").onchange = () => { if (playing) playing.beat = -1; $("metro").blur(); };
+$("rate").onchange = () => { if (playing) play(now()); $("rate").blur(); };   // blur: Space / keys go back to the editor
+
+// directions. Кисть: the button picks the brush, new notes get it (a picked group of 2+ is repainted too).
+// Правка: the button changes the picked notes.
+const KNAME = { up: "↑", down: "↓", left: "←", right: "→", act: "E", "": "🎲" };
+function applyKey(k) {
+  const ns = selNotes().filter(n => !n.hold);
+  if (!ns.length) { if (picked.size) setStatus("у удержания любая клавиша"); return 0; }
+  snapshot(); ns.forEach(n => n.key = k); mark(); return ns.length;
+}
 function setKey(k) {
-  if (sel < 0 || locked()) return;
-  if (notes[sel].hold) { setStatus("у удержания любая клавиша"); return; }
-  snapshot(); notes[sel].key = k; mark(); showKeys();
+  if (locked()) return;
+  if (keyMode === "brush") {
+    brush = k;
+    const n = picked.size >= 2 ? applyKey(k) : 0;
+    setStatus(n ? `кисть ${KNAME[k]}, перекрашено нот: ${n}` : `кисть ${KNAME[k]} — новые ноты получат это направление`);
+  } else {
+    if (!picked.size) { setStatus("выберите ноту (или несколько — Shift)"); return; }
+    applyKey(k);
+  }
+  showKeys(); draw();
+}
+function cycleKey() {
+  if (keyMode === "brush" && picked.size < 2) { setKey(nextKey(brush)); return; }
+  const m = notes[sel] && !notes[sel].hold ? notes[sel] : selNotes().find(n => !n.hold);
+  if (m) setKey(nextKey(m.key));
+}
+function setMode(m) {
+  keyMode = m; try { localStorage.setItem("mlpEdKeyMode", m); } catch (e) {}
+  $("mBrush").classList.toggle("on", m === "brush"); $("mEdit").classList.toggle("on", m === "edit"); showKeys(); draw();
 }
 function showKeys() {
-  const k = sel >= 0 && notes[sel] && !notes[sel].hold ? notes[sel].key || "" : null;
+  let k = null;
+  if (keyMode === "brush") k = brush;
+  else if (sel >= 0 && notes[sel] && !notes[sel].hold) k = notes[sel].key || "";
   document.querySelectorAll("#keys .btn").forEach(b => b.classList.toggle("on", k !== null && b.dataset.k === k));
+  const hint = keyMode === "brush" ? `ставьте ноты — каждая получит ${KNAME[brush]}` + (picked.size >= 2 ? ` · выбрано ${picked.size}: кнопка перекрасит их` : "")
+    : (picked.size ? `выбрано нот: ${picked.size}` : "выберите ноту, потом направление");
+  if ($("keyhint").textContent !== hint) $("keyhint").textContent = hint;
 }
 document.querySelectorAll("#keys .btn").forEach(b => b.onclick = () => setKey(b.dataset.k));
-function toggleHold() { if (sel < 0 || locked()) return; snapshot(); notes[sel].hold = !notes[sel].hold; mark(); }
-function delNote() { if (sel < 0 || locked()) return; snapshot(); notes.splice(sel, 1); sel = Math.min(sel, notes.length - 1); mark(); }
-function doUndo() { if (!undo.length || locked()) return; notes = JSON.parse(undo.pop()); sel = -1; mark(); }
+$("mBrush").onclick = () => setMode("brush"); $("mEdit").onclick = () => setMode("edit");
+try { if (localStorage.getItem("mlpEdKeyMode") === "edit") keyMode = "edit"; } catch (e) {}
+$("mBrush").classList.toggle("on", keyMode === "brush"); $("mEdit").classList.toggle("on", keyMode === "edit");
+
+function toggleHold() {
+  if (!picked.size || locked()) return;
+  snapshot(); const on = !selNotes().every(n => n.hold); selNotes().forEach(n => n.hold = on); mark();
+}
+function delNote() {
+  if (!picked.size || locked()) return;
+  snapshot(); const first = sel; notes = notes.filter(n => !picked.has(n)); pick(Math.min(first, notes.length - 1)); mark();
+}
+function doUndo() { if (!undo.length || locked()) return; redo.push(JSON.stringify(notes)); notes = JSON.parse(undo.pop()); pick(-1); mark(); }
+function doRedo() { if (!redo.length || locked()) return; undo.push(JSON.stringify(notes)); notes = JSON.parse(redo.pop()); pick(-1); mark(); }
+function nudge(dir) {                          // the picked notes one snap step (10 ms without snapping)
+  if (!picked.size || locked()) return;
+  const div = +$("snap").value, step = div && song.beat ? song.beat / div : 0.01;
+  snapshot(); selNotes().forEach(n => n.t = Math.max(0, Math.min(song.len, Math.round((n.t + dir * step) * 1000) / 1000)));
+  const m = notes[sel]; notes.sort((a, b) => a.t - b.t); sel = notes.indexOf(m); if (m) window._pos = m.t; mark();
+}
+function copyNotes() {
+  const ns = selNotes(); if (!ns.length) return;
+  const t0 = ns[0].t; clip = ns.map(n => ({ t: n.t - t0, hold: n.hold, key: n.key }));
+  setStatus(`скопировано нот: ${clip.length} — Ctrl+V вставит их с места курсора`);
+}
+function pasteNotes() {
+  if (!clip.length || locked()) return;
+  const at = snapT(now()), add = clip.map(c => ({ t: Math.round((at + c.t) * 1000) / 1000, hold: c.hold, key: c.key })).filter(n => n.t <= song.len);
+  if (!add.length) return;
+  snapshot();
+  notes = notes.filter(n => !add.some(m => Math.abs(m.t - n.t) < MIN_GAP)).concat(add).sort((a, b) => a.t - b.t);
+  picked = new Set(add); sel = notes.indexOf(add[0]); mark();
+  setStatus(`вставлено нот: ${add.length}`);
+}
 $("hold").onclick = toggleHold; $("del").onclick = delNote; $("undo").onclick = doUndo;
 $("play").onclick = () => playing ? stop() : play(now());
 document.addEventListener("keydown", e => {
+  modCursor(e);
   if ($("ed").hidden || document.querySelector(".test") || rec || ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
-  if (e.key === " ") { e.preventDefault(); playing ? stop() : play(now()); }
+  const c = e.code, ctrl = e.ctrlKey || e.metaKey;
+  if (e.key === "Alt") { e.preventDefault(); if (!playing) draw(); return; }   // no browser menu for the eraser's Alt
+  if (ctrl && c === "KeyS") { e.preventDefault(); save(); }
+  else if (ctrl && (c === "KeyY" || (c === "KeyZ" && e.shiftKey))) { e.preventDefault(); doRedo(); }
+  else if (ctrl && c === "KeyZ") { e.preventDefault(); doUndo(); }
+  else if (ctrl && c === "KeyA") { e.preventDefault(); picked = new Set(notes); sel = notes.length ? 0 : -1; draw(); showKeys(); setStatus(`выбрано нот: ${picked.size}`); }
+  else if (ctrl && c === "KeyC") { e.preventDefault(); copyNotes(); }
+  else if (ctrl && c === "KeyV") { e.preventDefault(); pasteNotes(); }
+  else if (ctrl || e.altKey) { if (!playing) draw(); }
+  else if (e.key === " ") { e.preventDefault(); playing ? stop() : play(now()); }
+  else if (e.key === "Escape") { pick(-1); draw(); showKeys(); }
   else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); delNote(); }
-  else if (e.key === "h" || e.key === "H" || e.key === "р" || e.key === "Р") toggleHold();
-  else if (["1", "2", "3", "4", "5", "0"].includes(e.key)) setKey({ 1: "up", 2: "down", 3: "left", 4: "right", 5: "act", 0: "" }[e.key]);
-  else if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "я")) { e.preventDefault(); doUndo(); }
-  else if (e.key === "ArrowLeft" && sel >= 0) { sel = Math.max(0, sel - 1); window._pos = notes[sel].t; draw(); }
-  else if (e.key === "ArrowRight" && sel >= 0) { sel = Math.min(notes.length - 1, sel + 1); window._pos = notes[sel].t; draw(); }
+  else if (c === "KeyH") toggleHold();
+  else if (c === "KeyQ") cycleKey();
+  else if (c === "KeyB") setMode(keyMode === "brush" ? "edit" : "brush");
+  else if (c === "KeyX") mirrorNotes();
+  else if (c === "KeyF") fillNotes();
+  else if (c === "KeyM") { $("metro").checked = !$("metro").checked; if (playing) playing.beat = -1; setStatus($("metro").checked ? "метроном включён" : "метроном выключен"); }
+  else if (/^(Digit|Numpad)[0-5]$/.test(c)) setKey({ 1: "up", 2: "down", 3: "left", 4: "right", 5: "act", 0: "" }[c.slice(-1)]);
+  else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && e.shiftKey) { e.preventDefault(); nudge(e.key === "ArrowLeft" ? -1 : 1); }
+  else if (e.key === "ArrowLeft" && sel >= 0) { e.preventDefault(); pick(Math.max(0, sel - 1)); window._pos = notes[sel].t; draw(); showKeys(); }
+  else if (e.key === "ArrowRight" && sel >= 0) { e.preventDefault(); pick(Math.min(notes.length - 1, sel + 1)); window._pos = notes[sel].t; draw(); showKeys(); }
+  else if (e.shiftKey && !playing) draw();
+});
+document.addEventListener("keyup", e => {
+  if (e.key === "Alt") e.preventDefault();
+  modCursor(e); if (hover && !playing) draw();
 });
 ["pstart", "plen", "snap"].forEach(id => $(id).addEventListener("change", () => { if (id !== "snap") mark(); draw(); }));
 ["title", "artist"].forEach(id => $(id).addEventListener("input", () => { dirty = true; setStatus("есть несохранённые изменения"); }));
@@ -526,7 +776,7 @@ function checkWarnings() {
   const p = problems(), box = $("warns");
   box.textContent = "";
   p.slice(0, 6).forEach(w => { const d = document.createElement("div"); d.className = "warn"; d.textContent = (w.hard ? "⛔ " : "⚠ ") + w.text; d.style.cursor = "pointer";
-    d.onclick = () => { sel = w.i; window._pos = notes[w.i].t; setView(notes[w.i].t - cv.clientWidth / zoom / 3); draw(); }; box.appendChild(d); });
+    d.onclick = () => { pick(w.i); window._pos = notes[w.i].t; setView(notes[w.i].t - cv.clientWidth / zoom / 3); draw(); }; box.appendChild(d); });
   if (p.length > 6) { const d = document.createElement("div"); d.className = "warn"; d.textContent = `…и ещё ${p.length - 6}`; box.appendChild(d); }
   const np = notes.length, nh = notes.filter(n => n.hold).length;
   $("facts").textContent = `${mmss(song.len)} · ${song.bpm || "?"} BPM · ${np} нот, ${nh} удерж.`;
@@ -591,7 +841,7 @@ function recStop() {
   // the recorded ones win over old notes too close to them
   notes = notes.filter(n => !r.notes.some(m => Math.abs(m.t - n.t) < MIN_GAP));
   notes = notes.concat(r.notes).sort((x, y) => x.t - y.t);
-  sel = -1; mark();
+  pick(-1); mark();
   setStatus(`записано ${r.notes.length} нот — проверьте ⛔ / ⚠ и сохраните`);
 }
 $("rec").onclick = () => rec ? recStop() : recStart();
@@ -637,7 +887,7 @@ async function doTrim(start, end) {
   const r = await fetch("/api/v1/songs/" + UUID + "/trim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ start, end }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { setStatus("не обрезалось: " + (j.detail || r.status)); return; }
-  undo = []; sel = -1; window._pos = 0;
+  undo = []; redo = []; pick(-1); window._pos = 0;
   $("ed").hidden = true; $("out").hidden = false; $("out").textContent = "Загружается обрезанная песня…";
   await load();
   setStatus(`обрезано — осталось ${j.notes} нот`);
@@ -665,7 +915,7 @@ $("save").onclick = save;
 $("clear").onclick = () => {
   if (locked() || !notes.length) return;
   if (!confirm(`Вы уверены? Все ноты (${notes.length}) будут удалены. Вернуть можно кнопкой «Отменить», пока страница открыта.`)) return;
-  snapshot(); notes = []; sel = -1; mark(); setStatus("все ноты удалены — не забудьте сохранить");
+  snapshot(); notes = []; pick(-1); mark(); setStatus("все ноты удалены — не забудьте сохранить");
 };
 $("auto").onclick = async () => {
   if (!confirm(notes.length ? "Расставить ноты автоматически? Текущие ноты заменятся (их можно вернуть «Отменить»)." : "Расставить ноты автоматически?")) return;
@@ -677,7 +927,7 @@ $("auto").onclick = async () => {
     const s = await (await fetch("/api/v1/songs/" + UUID)).json();
     if (s.analysis === "done" || s.analysis === "failed") {
       if (s.analysis === "failed") { setStatus("не получилось: " + (s.analysis_error || "")); return; }
-      const L = new Set(s.chart.large); notes = s.chart.t.map((t, i) => ({ t, hold: L.has(i + 1), key: (s.chart.keys && s.chart.keys[i]) || "" })); sel = -1; mark(); return;
+      const L = new Set(s.chart.large); notes = s.chart.t.map((t, i) => ({ t, hold: L.has(i + 1), key: (s.chart.keys && s.chart.keys[i]) || "" })); pick(-1); mark(); return;
     }
   }
 };
