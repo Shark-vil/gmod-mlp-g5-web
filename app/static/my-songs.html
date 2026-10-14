@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Мои песни — Maretime Bay</title>
 <link rel="stylesheet" href="/static/site.css">
+<script src="/static/theme.js"></script>
 <style>
   .who { display: flex; align-items: center; gap: 12px; padding: 12px; }
   .who img { width: 56px; height: 56px; border-radius: 12px; }
@@ -22,7 +23,8 @@
   .chip { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--row); margin-left: 6px; }
   .chip.ok { background: #d8f5e2; color: #20683a; }
   .chip.no { background: #fbe0e0; color: #8a2a2a; }
-  @media (prefers-color-scheme: dark) { .chip.ok { background: #1f4a30; color: #bff0cf; } .chip.no { background: #4d2424; color: #f5c8c8; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip.ok { background: #1f4a30; color: #bff0cf; } :root:not([data-theme="light"]) .chip.no { background: #4d2424; color: #f5c8c8; } }
+:root[data-theme="dark"] .chip.ok { background: #1f4a30; color: #bff0cf; } :root[data-theme="dark"] .chip.no { background: #4d2424; color: #f5c8c8; }
   form.up { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; }
   form.up .file, form.up .row { grid-column: 1 / -1; }
   form.up .row { display: flex; gap: 10px; align-items: center; }

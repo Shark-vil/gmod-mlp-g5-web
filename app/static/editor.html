@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Редактор песни — Maretime Bay</title>
 <link rel="stylesheet" href="/static/site.css">
+<script src="/static/theme.js"></script>
 <style>
   main { max-width: 1100px; }
   .head { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; padding: 10px; align-items: center; }
@@ -23,11 +24,13 @@
   .side h3 { margin: 0 0 6px; font-size: 14px; }
   .side p { margin: 4px 0; font-size: 13px; color: var(--muted); }
   .warn { color: #b3471f; font-size: 13px; margin: 4px 0; }
-  @media (prefers-color-scheme: dark) { .warn { color: #ffb08a; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .warn { color: #ffb08a; } }
+:root[data-theme="dark"] .warn { color: #ffb08a; }
   .btn.hold { background: #ffe9a8; color: #6b4a00; }
   .btn.del { background: #fbdcdc; color: #8a2a2a; }
   .btn.undo { background: #e6dcff; color: #4a2c8a; }
-  @media (prefers-color-scheme: dark) { .btn.hold { background: #5a4710; color: #ffe39a; } .btn.del { background: #552626; color: #ffc9c9; } .btn.undo { background: #3b2e63; color: #d9ccff; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.hold { background: #5a4710; color: #ffe39a; } :root:not([data-theme="light"]) .btn.del { background: #552626; color: #ffc9c9; } :root:not([data-theme="light"]) .btn.undo { background: #3b2e63; color: #d9ccff; } }
+:root[data-theme="dark"] .btn.hold { background: #5a4710; color: #ffe39a; } :root[data-theme="dark"] .btn.del { background: #552626; color: #ffc9c9; } :root[data-theme="dark"] .btn.undo { background: #3b2e63; color: #d9ccff; }
   .keyrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; width: 100%; padding: 8px 0 2px; border-top: 1px solid var(--line); margin-top: 2px; }
   .keys { display: inline-flex; gap: 6px; align-items: center; }
   /* the direction buttons: filled with the note's colour, a big white sign (the same look as the notes on the lane) */
@@ -67,7 +70,8 @@
   .pub .row input { flex: 1 1 320px; }
   .pub a { color: var(--text); }
   .pub .ok { color: #20683a; } .pub .bad { color: #b3471f; }
-  @media (prefers-color-scheme: dark) { .pub .ok { color: #9fe0b5; } .pub .bad { color: #ffb08a; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pub .ok { color: #9fe0b5; } :root:not([data-theme="light"]) .pub .bad { color: #ffb08a; } }
+:root[data-theme="dark"] .pub .ok { color: #9fe0b5; } :root[data-theme="dark"] .pub .bad { color: #ffb08a; }
   .locked .tools button:not(#play):not(#test):not(#pplay), .locked #title, .locked #artist, .locked #pstart, .locked #plen, .locked #phere, .locked #trim, .locked #untrim, .locked #tsHere, .locked #teHere, .locked #tstart, .locked #tend, .locked #keys, .locked .seg, .locked #mirror, .locked #fill, .locked #rec, .locked #coverUp, .locked #coverDrop, .locked #recReplace { pointer-events: none; opacity: .45; }
   @media (max-width: 760px) { .head, .side { grid-template-columns: 1fr; } }
 </style>
@@ -674,7 +678,7 @@ function cycleKey() {
   if (m) setKey(nextKey(m.key));
 }
 function setMode(m) {
-  keyMode = m; try { localStorage.setItem("mlpEdKeyMode", m); } catch (e) {}
+  keyMode = m; window.mlpStore.set("mlpEdKeyMode", m);
   $("mBrush").classList.toggle("on", m === "brush"); $("mEdit").classList.toggle("on", m === "edit"); showKeys(); draw();
 }
 function showKeys() {
@@ -688,7 +692,8 @@ function showKeys() {
 }
 document.querySelectorAll("#keys .btn").forEach(b => b.onclick = () => setKey(b.dataset.k));
 $("mBrush").onclick = () => setMode("brush"); $("mEdit").onclick = () => setMode("edit");
-try { if (localStorage.getItem("mlpEdKeyMode") === "edit") keyMode = "edit"; } catch (e) {}
+if (window.mlpStore.get("mlpEdKeyMode") === "edit") keyMode = "edit";
+document.addEventListener("mlp-theme", () => draw());   // the lane is drawn with the theme's colours
 $("mBrush").classList.toggle("on", keyMode === "brush"); $("mEdit").classList.toggle("on", keyMode === "edit");
 
 function toggleHold() {

@@ -2,8 +2,11 @@
 [hidden] { display: none !important; } /* wins over any display: set below */
 :root { --bg: #fff6fb; --card: #ffffff; --text: #56308a; --muted: #9a7cc0; --pink: #ff78be; --lilac: #a882ff; --row: #ffecf7; --line: #f3d9ea;
         --mark: #d6469a; --mark-hover: #ff78be; --grid: #ecd6e6; }
-@media (prefers-color-scheme: dark) { :root { --bg: #1a1224; --card: #261b36; --text: #f3e9ff; --muted: #b9a2d8; --row: #2f2242; --line: #3a2a52;
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1a1224; --card: #261b36; --text: #f3e9ff; --muted: #b9a2d8; --row: #2f2242; --line: #3a2a52;
         --mark: #d6469a; --mark-hover: #ff78be; --grid: #4a3866; } }
+:root[data-theme="dark"] { --bg: #1a1224; --card: #261b36; --text: #f3e9ff; --muted: #b9a2d8; --row: #2f2242; --line: #3a2a52;
+        --mark: #d6469a; --mark-hover: #ff78be; --grid: #4a3866; }
+:root { color-scheme: light; } :root[data-theme="dark"] { color-scheme: dark; } /* form controls and scrollbars follow */
 * { box-sizing: border-box; }
 body { margin: 0; font: 15px/1.4 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
 .bar { height: 4px; background: linear-gradient(90deg, var(--pink), var(--lilac)); }

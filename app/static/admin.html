@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Админка — Maretime Bay</title>
 <link rel="stylesheet" href="/static/site.css">
+<script src="/static/theme.js"></script>
 <style>
   main { max-width: 980px; }
   .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
-  .tabs .btn.on { background: var(--pink); color: #fff; }
+  .tabs .btn.on { background: #c2307f; color: #fff; font-weight: 600; }
   .filters { display: grid; grid-template-columns: 1fr 200px; gap: 8px; margin-bottom: 10px; }
   .song { padding: 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; grid-template-columns: 64px 1fr; }
   .song > :not(img) { grid-column: 2; }
@@ -21,9 +22,11 @@
   .song .act { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--row); margin-left: 6px; font-weight: 400; }
   .chip.ok { background: #d8f5e2; color: #20683a; } .chip.no { background: #fbe0e0; color: #8a2a2a; } .chip.wait { background: #fff1c7; color: #6b5200; }
-  @media (prefers-color-scheme: dark) { .chip.ok { background: #1f4a30; color: #bff0cf; } .chip.no { background: #4d2424; color: #f5c8c8; } .chip.wait { background: #4a3d12; color: #f6e2a0; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip.ok { background: #1f4a30; color: #bff0cf; } :root:not([data-theme="light"]) .chip.no { background: #4d2424; color: #f5c8c8; } :root:not([data-theme="light"]) .chip.wait { background: #4a3d12; color: #f6e2a0; } }
+:root[data-theme="dark"] .chip.ok { background: #1f4a30; color: #bff0cf; } :root[data-theme="dark"] .chip.no { background: #4d2424; color: #f5c8c8; } :root[data-theme="dark"] .chip.wait { background: #4a3d12; color: #f6e2a0; }
   .btn.danger { background: #fbe0e0; color: #8a2a2a; }
-  @media (prefers-color-scheme: dark) { .btn.danger { background: #4d2424; color: #f5c8c8; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.danger { background: #4d2424; color: #f5c8c8; } }
+:root[data-theme="dark"] .btn.danger { background: #4d2424; color: #f5c8c8; }
   .empty, .msg { padding: 18px; text-align: center; color: var(--muted); }
   /* the list field (as in tg-pony-moderator): lines / commas / one by one, chips, .txt import */
   .lf { padding: 12px; }
@@ -170,7 +173,7 @@ function setMode(m, save) {
   lf.querySelectorAll(".lf-mode").forEach(b => b.classList.toggle("active", b.dataset.mode === m));
   if (m === "add") { write(items(), "\n"); ta.hidden = true; addWrap.hidden = false; renderChips(); }
   else { addWrap.hidden = true; ta.hidden = false; write(items(), m === "comma" ? ", " : "\n"); }
-  if (save) { try { localStorage.setItem(LS, m); } catch (e) {} }
+  if (save) window.mlpStore.set(LS, m);
 }
 function addFromInput() { const arr = items(); parseItems(input.value).forEach(t => { if (!arr.includes(t)) arr.push(t); }); write(arr, "\n"); input.value = ""; renderChips(); }
 lf.querySelectorAll(".lf-mode").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
@@ -196,7 +199,7 @@ fileInput.onchange = () => {
 async function loadWords() {
   const res = await (await fetch("/api/v1/admin/banwords")).json();
   write(res.words || [], "\n");
-  let m = "lines"; try { m = localStorage.getItem(LS) || "lines"; } catch (e) {}
+  let m = window.mlpStore.get(LS) || "lines";
   setMode(m, false);
 }
 $("saveWords").onclick = async () => {
