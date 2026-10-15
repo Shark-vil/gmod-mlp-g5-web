@@ -59,9 +59,10 @@
   .top10 li { padding: 3px 0; }
   .top10 a { color: var(--text); }
   .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
-  .claim { border: 0; background: none; padding: 2px 4px; cursor: pointer; color: var(--muted); opacity: .45; font-size: 13px; line-height: 1; }
-  .claim:hover, .claim:focus-visible { opacity: 1; }
-  .claim svg { width: 14px; height: 14px; vertical-align: -2px; }
+  .claim { border: 0; background: none; padding: 2px 0; cursor: pointer; color: var(--muted); font: inherit; font-size: 13px; line-height: 1.2;
+    display: inline-flex; gap: 5px; align-items: center; }
+  .claim:hover, .claim:focus-visible { color: var(--text); text-decoration: underline; }
+  .claim svg { width: 15px; height: 15px; flex: none; }
   .lg-box p { font-size: 14px; margin: 0 0 10px; }
   .lg-box .wsl { overflow-wrap: anywhere; font-weight: 600; }
 </style>
@@ -205,6 +206,7 @@ async function page(u) {
     const c = el("button", null, "claim"); c.type = "button";
     c.title = "Сообщить о нарушении авторских прав"; c.setAttribute("aria-label", "Сообщить о нарушении авторских прав");
     c.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M10 6.2a2.6 2.6 0 1 0 0 3.6"/></svg>';
+    c.appendChild(el("span", "Жалоба правообладателя"));
     c.onclick = () => claimDialog(u, c);
     foot.appendChild(c);
   }
