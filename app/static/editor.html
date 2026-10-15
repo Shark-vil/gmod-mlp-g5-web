@@ -78,6 +78,8 @@
   /* the editor's zones: playback above the lane, the note tools right under it, the rest below */
   .tools.zone { margin-top: 8px; }
   .vol { white-space: nowrap; }
+  .nsize { white-space: nowrap; }
+  .tools .nsize input[type=number] { width: 52px; min-width: 0; flex: none; padding: 4px 4px 4px 8px; }
   .vol input[type=range] { width: 100px; padding: 0; margin: 0; accent-color: var(--pink); }
   .lane .resizer { height: 14px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; border-top: 1px solid var(--line); touch-action: none; }
   .lane .resizer::before { content: ""; width: 48px; height: 4px; border-radius: 2px; background: var(--muted); opacity: .45; }
@@ -182,6 +184,9 @@
       <span class="sep"></span>
       <label title="Медленнее — проще попасть в такт (звук ниже). На «Проверить» не действует">Скорость <select id="rate"><option value="1" selected>1×</option><option value="0.75">0,75×</option><option value="0.5">0,5×</option></select></label>
       <label>Масштаб <button class="btn" id="zout" title="−">−</button><button class="btn" id="zin" title="+">+</button></label>
+      <label class="nsize" title="Размер значков нот на дорожке, в пикселях (диаметр): самый маленький при отдалении и самый большой при приближении. Только вид редактора — на песню не влияет">Ноты
+        <input type="number" id="nmin" min="8" max="60" step="2" value="14" aria-label="Наименьший размер нот"> –
+        <input type="number" id="nmax" min="14" max="120" step="2" value="40" aria-label="Наибольший размер нот"> px</label>
       <span class="sep"></span>
       <label class="vol" title="Громкость песни">🔊 Песня <input type="range" id="vol" min="0" max="100" value="70" aria-label="Громкость песни"></label>
       <label class="vol" title="Щелчки на каждом ударе во время игры (M) и их громкость"><input type="checkbox" id="metro" style="width:auto"> Метроном <input type="range" id="mvol" min="0" max="100" value="80" aria-label="Громкость метронома"></label>
@@ -747,14 +752,30 @@ function draw() {
   $("time").textContent = mmss(now(), true);
 }
 
+// the notes' size on the lane, a view setting of this browser (not the song's): the smallest / the largest diameter
+const NSIZE = { min: 14, max: 40 };
+(function () {
+  const v = String(window.mlpStore.get("mlpEdNoteSize") || "").split(",").map(Number);
+  if (v.length === 2 && v[0] >= 8 && v[1] >= v[0]) { NSIZE.min = v[0]; NSIZE.max = v[1]; }
+  $("nmin").value = NSIZE.min; $("nmax").value = NSIZE.max;
+  const set = () => {
+    let a = Math.round(+$("nmin").value || 14), b = Math.round(+$("nmax").value || 40);
+    a = Math.max(8, Math.min(60, a)); b = Math.max(14, Math.min(120, b)); if (b < a) b = a;
+    NSIZE.min = a; NSIZE.max = b; window.mlpStore.set("mlpEdNoteSize", a + "," + b); draw();
+  };
+  $("nmin").addEventListener("input", set); $("nmax").addEventListener("input", set);
+  $("nmin").addEventListener("change", () => { $("nmin").value = NSIZE.min; $("nmax").value = NSIZE.max; });
+  $("nmax").addEventListener("change", () => { $("nmin").value = NSIZE.min; $("nmax").value = NSIZE.max; });
+})();
 // the notes' size: from the usual gap between the notes in view (the median), capped per note by its own neighbours;
 // zoomed in they grow with the zoom (17 px at the usual 140 px/s), up to what the lane's height holds
 function noteSizes(W, H) {
   const wh = H * WAVE_H, gaps = [];
   for (let i = 1; i < notes.length; i++) if (X(notes[i].t) > -40 && X(notes[i - 1].t) < W + 40) gaps.push(notes[i].t - notes[i - 1].t);
   gaps.sort((a, b) => a - b);
-  const top = Math.max(17, Math.min((H - wh) / 2 - 10, 17 * zoom / 140));
-  const Rg = Math.max(7, Math.min(top, (gaps.length ? gaps[gaps.length >> 1] : 1) * zoom / 2 - 3));
+  const lo = NSIZE.min / 2, hi = Math.max(lo, Math.min(NSIZE.max / 2, (H - wh) / 2 - 8));   // the editor's view setting (diameters)
+  const top = Math.max(lo, Math.min(hi, 17 * zoom / 140));
+  const Rg = Math.max(lo, Math.min(top, (gaps.length ? gaps[gaps.length >> 1] : 1) * zoom / 2 - 3));
   const radius = i => {
     const l = i > 0 ? notes[i].t - notes[i - 1].t : 9, r = i < notes.length - 1 ? notes[i + 1].t - notes[i].t : 9;
     return Math.max(4, Math.min(Rg, Math.min(l, r) * zoom / 2 - 1));
