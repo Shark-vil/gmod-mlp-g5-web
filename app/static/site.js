@@ -136,7 +136,7 @@
   .ck-foot button { border: 0; background: none; color: var(--muted); text-decoration: underline; font: inherit; cursor: pointer; padding: 0; }`;
   const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
-  const KEYS = ["mlpTheme", "mlpLang", "mlpEdKeyMode", "lf-mode:ban_words", "lf-mode:genres", "mlpEd_vol", "mlpEd_mvol", "mlpEdLaneH", "mlpSongsAge"];   // what "remember settings" keeps
+  const KEYS = ["mlpTheme", "mlpLang", "mlpEdKeyMode", "lf-mode:ban_words", "lf-mode:genres", "mlpEd_vol", "mlpEd_mvol", "mlpEdLaneH", "mlpSongsAge", "mlpSongsAges"];   // what "remember settings" keeps
   const LOSS_LOGIN = "Не получится войти через Steam: не будет «Мои песни», загрузки и редактора песен, «Моей статистики». Если вы уже вошли — выйдете.";
   const LOSS_PREFS = "Язык, тема, настройки редактора и вид списков не запомнятся: при каждом открытии — снова как в системе и по умолчанию.";
   const LOSS_LOGIN_ROW = "Без него: не получится войти через Steam — не будет «Мои песни», загрузки и редактора песен, «Моей статистики». Если вы уже вошли — выйдете.";

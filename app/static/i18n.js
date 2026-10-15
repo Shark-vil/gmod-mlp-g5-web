@@ -295,6 +295,8 @@
     "Найти песню, исполнителя, автора или тег": "Find a song, an artist, an author or a tag", "Жанр": "Genre", "все жанры": "all genres",
     "Песни с метками 16+ / 18+ скрыты, пока вы их не включите": "Songs marked 16+ / 18+ are hidden until you turn them on",
     "без меток 16+ / 18+": "no 16+ / 18+ marks", "показывать 16+": "show 16+", "показывать 16+ и 18+": "show 16+ and 18+",
+    "Безопасное": "Safe", "ничего не выбрано": "nothing chosen", "все песни": "all songs",
+    "Отметьте хотя бы одну метку: «Безопасное», 16+ или 18+": "Tick at least one mark: «Safe», 16+ or 18+",
     "тег:": "tag:", "Убрать фильтр по тегу": "Remove the tag filter", "Песни с тегом «{0}»": "Songs tagged «{0}»",
     "16+: мат или эротический подтекст": "16+: swearing or a sexual subtext", "18+: много мата или мат и эротический подтекст": "18+: a lot of swearing, or swearing and a sexual subtext",
     "Источник:": "Source:", "Источник": "Source", "источник:": "source:",

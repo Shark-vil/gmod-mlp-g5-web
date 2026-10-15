@@ -558,8 +558,10 @@ def _visible(r, words=None):
 
 
 @router.get("/api/v1/songs")
-def song_list(q: str = "", limit: int = 50, offset: int = 0, genre: str = "", tag: str = "", age: int = 0):
-    """the published songs; age: the highest age mark to show (0 = none of 16+ / 18+, 16, 18)"""
+def song_list(q: str = "", limit: int = 50, offset: int = 0, genre: str = "", tag: str = "", age: int = 0, ages: str = ""):
+    """the published songs; ages: the age marks to show, any of "0" (safe), "16", "18" ("0,18"); or the older
+    age: the highest one (0 = none of 16+ / 18+, 16, 18)"""
+    want = {int(x) for x in ages.split(",") if x.strip() in ("0", "16", "18")} if ages else {a for a in (0, 16, 18) if a <= age}
     limit, offset = max(1, min(limit, 200)), max(0, offset)
     words = ban_words()
     with _db() as con:
@@ -570,7 +572,7 @@ def song_list(q: str = "", limit: int = 50, offset: int = 0, genre: str = "", ta
         if not _visible(r, words):
             continue
         p = published(r, words)
-        if p["age"] > age or (genre and genre not in p["genres"]) or (tag and tag not in p["tags"]):
+        if p["age"] not in want or (genre and genre not in p["genres"]) or (tag and tag not in p["tags"]):
             continue
         if ql and ql not in f"{p['title']} {p['artist']} {p['owner_nick'] or ''} {' '.join(p['tags'])}".lower():
             continue

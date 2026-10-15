@@ -11,6 +11,16 @@
 <style>
   .bar2 { display: grid; grid-template-columns: 1fr 190px 210px; gap: 8px; margin-bottom: 10px; }
   @media (max-width: 640px) { .bar2 { grid-template-columns: 1fr 1fr; } .bar2 input { grid-column: 1 / -1; } }
+  .ages { position: relative; }
+  .ages summary { list-style: none; cursor: pointer; height: 100%; box-sizing: border-box; padding: 8px 30px 8px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative; }
+  .ages summary::-webkit-details-marker { display: none; }
+  .ages summary::after { content: "▾"; position: absolute; right: 12px; color: var(--muted); }
+  .agebox { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 6px; box-shadow: 0 6px 20px rgba(40, 10, 70, .18); }
+  .agebox label { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+  .agebox label:hover { background: var(--row); }
+  .agebox input { width: 16px; height: 16px; margin: 0; padding: 0; flex: none; outline: none; box-shadow: none; accent-color: #c2307f; }
   .tagon { display: flex; gap: 8px; align-items: center; margin: -2px 2px 10px; font-size: 14px; color: var(--muted); }
   .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
   .tg { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--row); color: var(--text); border: 0; font: inherit; font-size: 12px; cursor: pointer; }
@@ -65,8 +75,14 @@
     <div class="bar2">
       <input id="q" type="search" placeholder="Найти песню, исполнителя, автора или тег" aria-label="Поиск песен">
       <select id="genre" aria-label="Жанр"><option value="">все жанры</option></select>
-      <select id="age" aria-label="Возрастные метки" title="Песни с метками 16+ / 18+ скрыты, пока вы их не включите">
-        <option value="0">без меток 16+ / 18+</option><option value="16">показывать 16+</option><option value="18">показывать 16+ и 18+</option></select>
+      <details class="ages" id="ages" title="Песни с метками 16+ / 18+ скрыты, пока вы их не включите">
+        <summary id="agesum" aria-label="Возрастные метки"></summary>
+        <div class="agebox">
+          <label><input type="checkbox" value="0"><span>Безопасное</span></label>
+          <label><input type="checkbox" value="16"><span>16+</span></label>
+          <label><input type="checkbox" value="18"><span>18+</span></label>
+        </div>
+      </details>
     </div>
     <div class="tagon" id="tagon" hidden><span>тег:</span><b id="tagname"></b><button class="btn" id="tagoff" title="Убрать фильтр по тегу">✕</button></div>
     <div class="card" id="rows"><div class="empty">…</div></div>
@@ -117,6 +133,12 @@ function songRow(s) {
   return row;
 }
 
+const boxes = () => [...document.querySelectorAll("#ages input")];
+const ages = () => boxes().filter(c => c.checked).map(c => c.value);
+function agesLabel() {
+  const on = ages();
+  $("agesum").textContent = !on.length ? tx("ничего не выбрано") : on.length === 3 ? tx("все песни") : on.map(v => v === "0" ? tx("Безопасное") : v + "+").join(", ");
+}
 let offset = 0, timer = null, tag = new URLSearchParams(location.search).get("tag") || "";
 function setTag(t) {
   tag = t || ""; $("tagon").hidden = !tag; $("tagname").textContent = tag ? "#" + tag : "";
@@ -127,11 +149,11 @@ async function list(reset) {
   if (reset) offset = 0;
   const q = $("q").value.trim();
   let res = { songs: [], total: 0 };
-  const qs = `limit=30&offset=${offset}&q=${encodeURIComponent(q)}&genre=${encodeURIComponent($("genre").value)}&tag=${encodeURIComponent(tag)}&age=${$("age").value}`;
+  const qs = `limit=30&offset=${offset}&q=${encodeURIComponent(q)}&genre=${encodeURIComponent($("genre").value)}&tag=${encodeURIComponent(tag)}&ages=${ages().join(",") || "none"}`;
   try { res = await (await fetch("/api/v1/songs?" + qs)).json(); } catch (e) {}
   const box = $("rows");
   if (reset) box.textContent = "";
-  if (!res.songs.length && reset) { box.appendChild(el("div", q || tag || $("genre").value ? "Ничего не нашлось" : "Песен пока нет — загрузите первую в «Мои песни»", "empty")); }
+  if (!res.songs.length && reset) { box.appendChild(el("div", !ages().length ? "Отметьте хотя бы одну метку: «Безопасное», 16+ или 18+" : q || tag || $("genre").value ? "Ничего не нашлось" : "Песен пока нет — загрузите первую в «Мои песни»", "empty")); }
   res.songs.forEach(s => box.appendChild(songRow(s)));
   offset += res.songs.length;
   $("more").hidden = offset >= res.total;
@@ -225,10 +247,18 @@ async function start() {
   if (one) { page(one[1]); return; }
   const fill = () => { const v = $("genre").value; $("genre").length = 1; GENRES.forEach(g => { const o = el("option", gname(g.id)); o.value = g.id; $("genre").appendChild(o); }); $("genre").value = v; };
   fill(); document.addEventListener("mlp-lang", () => { fill(); list(true); });
-  const saved = window.mlpStore.get("mlpSongsAge"); if (saved === "16" || saved === "18") $("age").value = saved;
+  // the age marks: any combination; kept as "0,16" in mlpSongsAges (the older mlpSongsAge: a single choice "16" / "18" = up to that mark)
+  let saved = window.mlpStore.get("mlpSongsAges");
+  if (saved == null) { const old = window.mlpStore.get("mlpSongsAge"); saved = old === "16" ? "0,16" : old === "18" ? "0,16,18" : "0"; }
+  const on = saved.split(",");
+  boxes().forEach(c => { c.checked = on.includes(c.value); });
+  agesLabel();
   $("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => list(true), 250); });
   $("genre").onchange = () => list(true);
-  $("age").onchange = () => { window.mlpStore.set("mlpSongsAge", $("age").value); list(true); };
+  boxes().forEach(c => c.onchange = () => { window.mlpStore.set("mlpSongsAges", ages().join(",") || "none"); agesLabel(); list(true); });
+  document.addEventListener("click", e => { if (!$("ages").contains(e.target)) $("ages").open = false; });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") $("ages").open = false; });
+  document.addEventListener("mlp-lang", agesLabel);
   $("tagoff").onclick = () => setTag("");
   $("more").onclick = () => list(false);
   if (tag) setTag(tag); else list(true);
