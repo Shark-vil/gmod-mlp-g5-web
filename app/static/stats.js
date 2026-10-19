@@ -19,9 +19,9 @@ const CATS = [
   { label: "Таран", stats: [ stat("best_rampage", "Лучший счёт"), stat("wins_rampage", "Победы"), stat("rammed_npcs", "Сбито пони-тараном"), stat("games_rampage", "Сыграно") ] },
   { label: "Хвостики", stats: [ stat("wins_tailtag", "Победы"), stat("bites_tailtag", "Укусов"), stat("games_tailtag", "Сыграно") ] },
   { label: "Пони-футбол", stats: [ stat("wins_football", "Победы"), stat("goals_football", "Голы"), stat("games_football", "Сыграно") ] },
-  { label: "Кролики и крабы", stats: [ stat("best_herding", "Лучший счёт"), stat("wins_herding", "Победы"), stat("herded_animals", "Загнано зверей"), stat("games_herding", "Сыграно") ] },
+  { label: "Гончие пони", stats: [ stat("best_herding", "Лучший счёт"), stat("wins_herding", "Победы"), stat("herded_animals", "Загнано зверей"), stat("games_herding", "Сыграно") ] },
   { label: "Против игроков", stats: [
-    stat("pvpwins", "Победы, всего"), stat("pvpwins_dance", "Победы в танце"), stat("pvpwins_skyrace", "Победы в небе"), stat("pvpwins_groundrace", "Победы на роликах"), stat("pvpwins_rampage", "Победы в таране"), stat("pvpwins_tailtag", "Победы в хвостиках"), stat("pvpwins_football", "Победы в футболе"), stat("pvpwins_herding", "Победы в «Кроликах и крабах»"),
+    stat("pvpwins", "Победы, всего"), stat("pvpwins_dance", "Победы в танце"), stat("pvpwins_skyrace", "Победы в небе"), stat("pvpwins_groundrace", "Победы на роликах"), stat("pvpwins_rampage", "Победы в таране"), stat("pvpwins_tailtag", "Победы в хвостиках"), stat("pvpwins_football", "Победы в футболе"), stat("pvpwins_herding", "Победы в «Гончих пони»"),
   ] },
   { label: "Против ботов", stats: [
     stat("botwins", "Победы, всего"), stat("botwins_master", "Над мастером"), stat("botwins_skilled", "Над опытным"),

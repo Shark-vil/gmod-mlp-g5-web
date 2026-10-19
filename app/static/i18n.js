@@ -57,7 +57,7 @@
     "Танец": "Dance", "Лучший счёт": "Best score", "Победы": "Wins", "Золотые медали": "Gold medals", "Сыграно": "Played",
     "Гонка в небе": "Sky race", "Лучшее время": "Best time", "Гонка на роликах": "Roller race", "Таран": "Rampage",
     "Сбито пони-тараном": "Knocked over by the pony ram", "Против игроков": "Against players", "Победы, всего": "Wins, total",
-    "Победы в танце": "Dance wins", "Победы в небе": "Sky race wins", "Победы на роликах": "Roller race wins", "Победы в таране": "Rampage wins", "Победы в хвостиках": "Tail tag wins", "Хвостики": "Tail tag", "Укусов": "Bites", "Пони-футбол": "Pony football", "Голы": "Goals", "Победы в футболе": "Football wins", "Кролики и крабы": "Bunnies and crabs", "Загнано зверей": "Animals herded", "Победы в «Кроликах и крабах»": "Bunnies and crabs wins",
+    "Победы в танце": "Dance wins", "Победы в небе": "Sky race wins", "Победы на роликах": "Roller race wins", "Победы в таране": "Rampage wins", "Победы в хвостиках": "Tail tag wins", "Хвостики": "Tail tag", "Укусов": "Bites", "Пони-футбол": "Pony football", "Голы": "Goals", "Победы в футболе": "Football wins", "Гончие пони": "Pony Herders", "Загнано зверей": "Animals herded", "Победы в «Гончих пони»": "Pony Herders wins",
     "Против ботов": "Against bots", "Над мастером": "Over a master", "Над опытным": "Over a skilled one", "Над любителем": "Over a casual one",
     "Над новичком": "Over a rookie", "Санни": "Sunny", "Иззи": "Izzy", "Хитч": "Hitch", "Пипп": "Pipp", "Зипп": "Zipp",
     "За 30 дней": "Last 30 days", "Время в игре по дням, мин": "Time played per day, min", "Пока ничего": "Nothing yet",
