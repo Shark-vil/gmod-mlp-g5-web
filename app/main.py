@@ -18,18 +18,14 @@ Anti-cheat is deliberately light — it only stops the obvious:
   many new unlocks per player a day
 - a fresh install starts from a small allowance (one report can't bring a day's worth), and unlocks are
   tied to the play time the player has (a couple per ten minutes)
-- POSTs need a one-time nonce (GET /api/v1/nonce, lives a few seconds, for one purpose and one install) and a
-  signature SHA256( nonce .. body .. salt ) - the salt is in the mod's code, so this only makes hand-made
-  requests awkward (no "Try it out" cheating, no replays); /api/docs is for admins only (Steam login)
+- no request signing: the mod is open source, a salt or a nonce in it stops nobody; the limits above do
+  the work. /api/docs is for admins only (Steam login)
 - everything clamped / refused is logged in `flags`; admins (MLP_ADMIN_TOKEN) can list the flags and wipe a
   player or an install
 Optional MLP_SERVER_KEYS ("name:key,…") marks trusted servers (named, no per-IP install limit).
 """
-import hashlib
-import hmac
 import json
 import math
-import secrets
 import os
 import re
 import sqlite3
@@ -60,11 +56,6 @@ LOOKUP_PER_MIN = int(os.environ.get("MLP_LOOKUP_PER_MIN", "60"))     # unlock lo
 IP_RATE_PER_MIN = int(os.environ.get("MLP_IP_RATE_PER_MIN", "300"))  # any requests per IP: flood guard only
 NEW_INSTALLS_PER_IP_DAY = int(os.environ.get("MLP_NEW_INSTALLS_PER_IP_DAY", "20"))  # hosters run many servers on one IP
 MAX_LOOKUP = 128
-# must match MLP.ApiSalt in the mod (lua/mlp_g5_lib/sv_stats_api.lua)
-SIGN_SALT = os.environ.get("MLP_SIGN_SALT", "mlp-g5:maretime-bay:9f3c1a7e")
-NONCE_TTL = float(os.environ.get("MLP_NONCE_TTL", "5"))  # the mod sends the POST right after getting it
-NONCE_PURPOSES = ("report", "unlocks")
-MAX_NONCES_PER_INSTALL = 8
 # unlocks a player may have for their play time: a few to start with, then one per this many minutes
 UNLOCK_FREE = 3
 UNLOCK_MINUTES = 5
@@ -115,7 +106,6 @@ NEW_UNLOCKS_PER_DAY = {"vanity": 16, "spell": 5}
 app = FastAPI(title="MLP Maretime Bay stats", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.Lock()
 hits = defaultdict(deque)
-nonces = {}  # nonce -> (install, purpose, expires); one process (see Dockerfile), lost on restart: fine
 
 
 def db():
@@ -225,45 +215,6 @@ def spend(con, sid, key, day, want):
     return grant
 
 
-def prune_nonces(now):
-    for n in [n for n, v in nonces.items() if v[2] < now]:
-        del nonces[n]
-
-
-@app.get("/api/v1/nonce")
-def nonce(request: Request, purpose: str = "report", x_install_id: str = Header(default="")):
-    """A one-time token for the next POST of this install (MLP_NONCE_TTL seconds)."""
-    check_ip(request)
-    install = x_install_id.lower()
-    if not INSTALL_RE.match(install):
-        raise HTTPException(400, "X-Install-Id missing")
-    if purpose not in NONCE_PURPOSES:
-        raise HTTPException(400, "bad purpose")
-    if not rate_ok("nonce:" + install, RATE_PER_MIN + LOOKUP_PER_MIN):
-        raise HTTPException(429, "too many nonces")
-    now = time.time()
-    with lock:
-        prune_nonces(now)
-        mine = [n for n, v in nonces.items() if v[0] == install]
-        if len(mine) >= MAX_NONCES_PER_INSTALL:
-            for n in sorted(mine, key=lambda n: nonces[n][2])[: len(mine) - MAX_NONCES_PER_INSTALL + 1]:
-                del nonces[n]
-        n = secrets.token_hex(16)
-        nonces[n] = (install, purpose, now + NONCE_TTL)
-    return {"nonce": n, "ttl": NONCE_TTL}
-
-
-def check_signed(install, purpose, x_nonce, x_sign, body):
-    """The nonce must be fresh, unused, for this install and purpose; the signature must match the body."""
-    with lock:
-        v = nonces.pop(x_nonce or "", None)
-    if not v or v[0] != install or v[1] != purpose or v[2] < time.time():
-        raise HTTPException(409, "nonce")
-    want = hashlib.sha256(x_nonce.encode() + body + SIGN_SALT.encode()).hexdigest()
-    if not hmac.compare_digest(want, (x_sign or "").lower()):
-        raise HTTPException(403, "bad signature")
-
-
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     """browsers ask for it on their own: the site's logo"""
@@ -276,8 +227,7 @@ def health():
 
 
 @app.post("/api/v1/report")
-async def report(request: Request, x_install_id: str = Header(default=""), x_server_key: str = Header(default=""),
-                 x_nonce: str = Header(default=""), x_sign: str = Header(default="")):
+async def report(request: Request, x_install_id: str = Header(default=""), x_server_key: str = Header(default="")):
     ip = check_ip(request)
     trusted = x_server_key in SERVER_KEYS
     install = x_install_id.lower()
@@ -286,7 +236,6 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
     if not rate_ok("inst:" + (x_server_key if trusted else install), RATE_PER_MIN):
         raise HTTPException(429, "too many reports")
     raw = await request.body()
-    check_signed(install, "report", x_nonce, x_sign, raw)
     try:
         body = json.loads(raw)
     except Exception:
@@ -464,13 +413,11 @@ def unlocks(steamid: str, request: Request, x_install_id: str = Header(default="
 
 
 @app.post("/api/v1/unlocks")
-async def unlocks_batch(request: Request, x_install_id: str = Header(default=""), x_nonce: str = Header(default=""),
-                        x_sign: str = Header(default="")):
+async def unlocks_batch(request: Request, x_install_id: str = Header(default="")):
     """The same for a whole server at once: { "steamids": [ … up to 128 ] } -> { "players": [ { "steamid", "vanity", "spell" } ] }
     (a list, not keyed by SteamID: GMod's JSON reader turns numeric keys into lossy numbers)."""
     lookup_ok(request, x_install_id)
     raw = await request.body()
-    check_signed(x_install_id.lower(), "unlocks", x_nonce, x_sign, raw)
     try:
         body = json.loads(raw)
     except Exception:
