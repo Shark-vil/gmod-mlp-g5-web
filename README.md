@@ -151,7 +151,7 @@ GMod не пускает HTTP-запросы на локальные адрес�
 | GET | `/link/{id}` | страница привязки: вход через Steam, сверка слов, подтверждение |
 | GET | `/api/v1/link/{id}/poll` | игра ждёт подтверждения (заголовок `X-Link-Secret`); токен выдаётся один раз |
 | DELETE | `/api/v1/link/token` | забыть токен игры (`Authorization: Bearer`) |
-| PUT / DELETE | `/api/v1/office` | выложить / убрать свой офис (токен): `{ map, props: [ [ id, x, y, z, p, y, r ], … ] }` |
+| PUT / DELETE | `/api/v1/office` | выложить / убрать свой офис (токен): `{ map, props: [ [ id, x, y, z, p, y, r ], … ], style? }` (style — отделка `стены:цвет:пол:цвет`, отдаётся в `GET /api/v1/office/{sid}`) |
 | GET | `/api/v1/office/me` | жив ли токен и что выложено (токен) |
 | GET | `/api/v1/offices?sort=top\|new\|big&page=` | каталог HoofTour |
 | GET | `/api/v1/office/{steamid64}?voter=` | один офис (и оценка этого голосующего) |

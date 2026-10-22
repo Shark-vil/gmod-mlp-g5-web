@@ -56,6 +56,8 @@ PER_PAGE = 12
 SID_RE = re.compile(r"^\d{17}$")
 ITEM_RE = re.compile(r"^[A-Za-z0-9_]{1,48}$")
 MAP_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+# the office's wall / floor finish: "wall:colour:floor:colour" (the game checks the ids against its own list)
+STYLE_RE = re.compile(r"^[a-z0-9]{1,16}:\d{1,2}:[a-z0-9]{1,16}:\d{1,2}$")
 LINK_RE = re.compile(r"^[0-9a-f]{16}$")
 WORDS = ["APPLE", "CLOUD", "STAR", "HOOF", "MANE", "TAIL", "WING", "HORN", "CAKE", "MOON", "SUN", "BAY", "SHELL",
          "WAVE", "BERRY", "PEAR", "GEM", "BELL", "KITE", "LAMP", "ROSE", "LEAF", "SMOOTHIE", "SKATE", "MAGIC", "CRYSTAL",
@@ -80,6 +82,8 @@ def init(db_factory, client_ip, rate_ok):
             CREATE INDEX IF NOT EXISTS idx_votes_ip ON office_votes ( ip, ts );
             """
         )
+        if "style" not in [c[1] for c in con.execute("PRAGMA table_info(offices)")]:
+            con.execute("ALTER TABLE offices ADD COLUMN style TEXT DEFAULT ''")
 
 
 def _hash(s: str) -> str:
@@ -240,7 +244,7 @@ def _num(v, lim):
 
 @router.put("/api/v1/office")
 async def office_put(request: Request, authorization: str = Header(default="")):
-    """{ map, props: [ [ item, x, y, z, pitch, yaw, roll ], … ] } (relative to the office's origin)."""
+    """{ map, props: [ [ item, x, y, z, pitch, yaw, roll ], … ], style? } (relative to the office's origin)."""
     _check_ip(request, "office", 30)
     sid = _require_token(authorization)
     if not _rate("officeput:" + sid, UPLOADS_PER_MIN):
@@ -252,6 +256,9 @@ async def office_put(request: Request, authorization: str = Header(default="")):
         raise HTTPException(400, "bad office")
     if len(props) > MAX_PROPS:
         raise HTTPException(400, f"at most {MAX_PROPS} things")
+    style = body.get("style", "")
+    if not isinstance(style, str) or style and not STYLE_RE.match(style):
+        raise HTTPException(400, "bad style")
     clean = []
     for p in props:
         if not isinstance(p, list) or len(p) != 7 or not isinstance(p[0], str) or not ITEM_RE.match(p[0]):
@@ -268,10 +275,10 @@ async def office_put(request: Request, authorization: str = Header(default="")):
         if uploads > UPLOADS_PER_DAY:
             raise HTTPException(429, "too many uploads today")
         con.execute(
-            "INSERT INTO offices ( steamid, map, props, data, created, updated, day, uploads ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ? ) "
+            "INSERT INTO offices ( steamid, map, props, data, style, created, updated, day, uploads ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ? ) "
             "ON CONFLICT ( steamid ) DO UPDATE SET map = excluded.map, props = excluded.props, data = excluded.data, "
-            "updated = excluded.updated, day = excluded.day, uploads = excluded.uploads",
-            (sid, mp, len(clean), json.dumps(clean, separators=(",", ":")), now, now, day, uploads),
+            "style = excluded.style, updated = excluded.updated, day = excluded.day, uploads = excluded.uploads",
+            (sid, mp, len(clean), json.dumps(clean, separators=(",", ":")), style, now, now, day, uploads),
         )
     return {"ok": True, "props": len(clean)}
 
@@ -339,7 +346,7 @@ def office_get(steamid: str, request: Request, voter: str = ""):
         mine = SID_RE.match(voter) and con.execute("SELECT stars FROM office_votes WHERE owner = ? AND voter = ?", (steamid, voter)).fetchone()
     rating, votes = _rating(row)
     return {"steamid": steamid, "nick": nick, "avatar": avatar, "map": row["map"], "props": json.loads(row["data"]),
-            "rating": rating, "votes": votes, "updated": row["updated"], "my_vote": mine["stars"] if mine else 0}
+            "style": row["style"] or "", "rating": rating, "votes": votes, "updated": row["updated"], "my_vote": mine["stars"] if mine else 0}
 
 
 @router.post("/api/v1/office/{steamid}/rate")
