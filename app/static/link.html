@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Привязка игры — Maretime Bay</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/site.css">
+<script src="/static/theme.js"></script>
+<script src="/static/i18n.js"></script>
+<style>
+  main { max-width: 640px; }
+  .lk { padding: 20px 22px; }
+  .lk h1 { margin: 0 0 10px; font-size: 21px; }
+  .lk p { margin: 10px 0; }
+  .words { font: 800 28px/1.2 ui-monospace, monospace; letter-spacing: .06em; text-align: center; background: var(--row);
+           border-radius: 12px; padding: 14px 10px; margin: 12px 0 6px; overflow-wrap: anywhere; }
+  .note { border-left: 4px solid #d9822b; background: var(--row); border-radius: 0 10px 10px 0; padding: 10px 14px; margin: 14px 0; }
+  .who { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+  .who img { width: 40px; height: 40px; border-radius: 8px; }
+  .acts { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  .done { font-size: 18px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="bar"></div>
+<main>
+  <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay</b><span id="account"></span></div>
+  <div class="card lk">
+    <h1>Привязка игры к Steam — HoofTour</h1>
+    <div id="load">Загрузка…</div>
+    <div id="bad" hidden><p id="badText"></p></div>
+    <div id="ok" hidden>
+      <p>Garry's Mod (мод MLP: Maretime Bay) просит разрешение выкладывать ваш офис на HoofTour от вашего имени.</p>
+      <div>Слова привязки:</div>
+      <div class="words" id="words"></div>
+      <div class="note" data-i18n="linkNote"><b>Это НЕ код Steam Guard</b> и не пароль. Никуда его вводить не нужно.
+        Просто сравните: на экране компьютера в игровом офисе должны быть те же слова. Если вы не нажимали «Войти через Steam»
+        в игре только что или слова не совпадают — закройте страницу: кто-то пытается получить доступ к вашему офису.</div>
+      <div id="needLogin" hidden>
+        <p>Сначала войдите через Steam тем же аккаунтом, что и в игре.</p>
+        <div class="acts"><button class="btn main" id="login">Войти через Steam</button></div>
+      </div>
+      <div id="confirm" hidden>
+        <div class="who"><img id="ava" alt=""><div>Вы вошли как <b id="nick"></b></div></div>
+        <div class="acts"><button class="btn main" id="yes">Слова совпадают — привязать</button><button class="btn" id="no">Отмена</button></div>
+      </div>
+      <p id="other" hidden></p>
+    </div>
+    <div id="fin" hidden><p class="done">Готово! Вернитесь в игру — привязка завершится сама через пару секунд.</p><p>Эту страницу можно закрыть.</p></div>
+  </div>
+</main>
+<script src="/static/site.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const lid = location.pathname.split("/").pop();
+function show(id) { for (const k of ["load", "bad", "ok", "fin"]) $(k).hidden = k !== id; }
+function bad(text) { $("badText").textContent = text; show("bad"); }
+async function load() {
+  const r = await fetch(`/api/v1/link/${encodeURIComponent(lid)}/info`, { credentials: "same-origin" });
+  if (!r.ok) return bad(tx("Ссылка устарела или неправильная. Нажмите «Войти через Steam» в игре ещё раз."));
+  const d = await r.json();
+  if (d.confirmed) return show("fin");
+  $("words").textContent = d.words;
+  show("ok");
+  if (!d.me) { $("needLogin").hidden = false; return; }
+  if (d.me.steamid !== d.game_steamid) {
+    $("other").hidden = false;
+    $("other").textContent = tx("Вы вошли как {0}, а в игре другой аккаунт ({1}). Выйдите и войдите через Steam тем аккаунтом, с которого играете.", d.me.nick, d.game_nick);
+    return;
+  }
+  $("confirm").hidden = false;
+  $("nick").textContent = d.me.nick;
+  if (d.me.avatar) $("ava").src = d.me.avatar; else $("ava").remove();
+}
+$("login").onclick = () => mlpLogin(location.pathname);
+$("no").onclick = () => bad(tx("Привязка отменена. Эту страницу можно закрыть."));
+$("yes").onclick = async () => {
+  $("yes").disabled = true;
+  const r = await fetch(`/api/v1/link/${encodeURIComponent(lid)}/confirm`, { method: "POST", credentials: "same-origin" });
+  if (r.ok) show("fin"); else bad(tx("Не получилось привязать. Нажмите «Войти через Steam» в игре ещё раз."));
+};
+load().catch(() => bad(tx("Сайт не отвечает. Попробуйте ещё раз.")));
+</script>
+</body>
+</html>

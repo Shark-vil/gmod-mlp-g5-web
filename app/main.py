@@ -39,9 +39,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 try:  # in the image: the package "app"; in local tests: the folder itself
-    from . import auth, songs
+    from . import auth, offices, songs
 except ImportError:
     import auth
+    import offices
     import songs
 
 DB_PATH = os.environ.get("MLP_DB", "/data/stats.db")
@@ -213,6 +214,10 @@ def spend(con, sid, key, day, want):
     if grant > 0:
         con.execute("REPLACE INTO budget ( steamid, key, day, gained ) VALUES ( ?, ?, ?, ? )", (sid, key, day, gained + grant))
     return grant
+
+
+offices.init(db, client_ip, rate_ok)
+app.include_router(offices.router)
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -634,6 +639,11 @@ def rules_page():
 @app.get("/away", include_in_schema=False)
 def away_page():
     return _page("away.html")  # ?r=<url>: the warning before an outside site (the page checks the link)
+
+
+@app.get("/link/{lid}", include_in_schema=False)
+def link_page(lid: str):
+    return _page("link.html")  # the game's Steam link: sign in, compare the words, confirm
 
 
 @app.get("/admin", include_in_schema=False)
