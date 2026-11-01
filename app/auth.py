@@ -28,7 +28,7 @@ STEAM_LOGIN = "https://steamcommunity.com/openid/login"
 CLAIMED_RE = re.compile(r"^https://steamcommunity\.com/openid/id/(\d{17})$")
 SESSION_COOKIE = "mlp_session"
 SESSION_DAYS = 30
-PUBLIC_URL = os.environ.get("MLP_PUBLIC_URL", "").rstrip("/")  # e.g. https://gmod-mlp-g5.itpony.pro
+PUBLIC_URL = os.environ.get("MLP_PUBLIC_URL", "").rstrip("/")  # e.g. https://manetown.itpony.pro
 ADMIN_STEAMIDS = {s.strip() for s in os.environ.get("MLP_ADMIN_STEAMIDS", "").split(",") if re.fullmatch(r"\d{17}", s.strip())}
 
 router = APIRouter()
