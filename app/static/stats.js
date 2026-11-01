@@ -11,6 +11,10 @@ const CATS = [
     { key: "items:spell", label: "Заклинания", url: "/api/v1/items/leaderboard?kind=spell" },
     stat("playtime", "Время в игре", hours),
   ] },
+  { label: "Прогресс", stats: [
+    stat("best_completion", "Игра пройдена, %"), stat("best_achievements", "Ачивки"), stat("best_photos", "Фото зверей и пони"),
+    stat("rifts_closed", "Закрыто трещин"), stat("party_quests", "Заданий в пати"),
+  ] },
   { label: "Танец", stats: [
     stat("best_dance", "Лучший счёт"), stat("wins_dance", "Победы"), stat("medal_dance_gold", "Золотые медали"), stat("games_dance", "Сыграно"),
   ] },
@@ -20,6 +24,7 @@ const CATS = [
   { label: "Хвостики", stats: [ stat("wins_tailtag", "Победы"), stat("bites_tailtag", "Укусов"), stat("games_tailtag", "Сыграно") ] },
   { label: "Пони-футбол", stats: [ stat("wins_football", "Победы"), stat("goals_football", "Голы"), stat("games_football", "Сыграно") ] },
   { label: "Гончие пони", stats: [ stat("best_herding", "Лучший счёт"), stat("wins_herding", "Победы"), stat("herded_animals", "Загнано зверей"), stat("games_herding", "Сыграно") ] },
+  { label: "Чашечки Пинки", stats: [ stat("wins_cups", "Победы"), stat("games_cups", "Сыграно") ] },
   { label: "Против игроков", stats: [
     stat("pvpwins", "Победы, всего"), stat("pvpwins_dance", "Победы в танце"), stat("pvpwins_skyrace", "Победы в небе"), stat("pvpwins_groundrace", "Победы на роликах"), stat("pvpwins_rampage", "Победы в таране"), stat("pvpwins_tailtag", "Победы в хвостиках"), stat("pvpwins_football", "Победы в футболе"), stat("pvpwins_herding", "Победы в «Гончих пони»"),
   ] },
@@ -169,7 +174,10 @@ async function renderProfile(sid, box, stillWanted) {
       return items ? `<h4>${esc(c.label)}</h4><div class="grid">${items}</div>` : "";
     }).join("");
     const ch = (p.characters || []).map(c => PONIES[c] || c).join(", ");
-    box.innerHTML = (groups || '<div class="empty">Пока ничего</div>') + (ch ? `<h4>Играл(а) за</h4><div>${esc(ch)}</div>` : "");
+    // the share of the game done (the mod's achievements: best_completion)
+    const pct = Math.max(0, Math.min(100, Math.round(s.best_completion || 0)));
+    const done = `<div class="done"><span>Игра пройдена на <b>${pct}%</b></span><i><u style="width:${pct}%"></u></i></div>`;
+    box.innerHTML = done + (groups || '<div class="empty">Пока ничего</div>') + (ch ? `<h4>Играл(а) за</h4><div>${esc(ch)}</div>` : "");
     charts(sid, box);
     return p;
   } catch (e) { box.textContent = "Не получилось загрузить"; }

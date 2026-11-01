@@ -86,6 +86,8 @@ MIN_TIME_DEFAULT = 3
 MAX_BEST = {"best_dance": 1500, "best_rampage": 20000, "best_herding": 400}  # herding: ~1 animal / 1.5 s for 600 s
 # kept per day for the charts (GET /api/v1/history/{steamid})
 HISTORY_KEYS = ("stars", "playtime")
+# progress counters kept as the best over servers, not records worth a feed line (the mod's achievements)
+NO_FEED = {"best_completion", "best_achievements", "best_photos"}
 HISTORY_MAX_DAYS = 120
 
 # the game's collectibles: "bits" items need this many all-time stars (game value × half the mod's default
@@ -317,7 +319,7 @@ async def report(request: Request, x_install_id: str = Header(default=""), x_ser
                         if kept < value - 1e-6:
                             flag(con, now, server, sid, key, old, value, kept)
                             clamped += 1
-                if fn in ("MAX", "MIN"):
+                if fn in ("MAX", "MIN") and key not in NO_FEED:
                     # a personal record over all servers: into the community feed (GET /api/v1/community)
                     best = con.execute(f"SELECT {fn}( value ) AS v FROM server_stats WHERE steamid = ? AND key = ?", (sid, key)).fetchone()["v"]
                     if best is None or (kept > best if fn == "MAX" else kept < best):
