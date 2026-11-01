@@ -25,6 +25,7 @@ const CATS = [
   { label: "Пони-футбол", stats: [ stat("wins_football", "Победы"), stat("goals_football", "Голы"), stat("games_football", "Сыграно") ] },
   { label: "Гончие пони", stats: [ stat("best_herding", "Лучший счёт"), stat("wins_herding", "Победы"), stat("herded_animals", "Загнано зверей"), stat("games_herding", "Сыграно") ] },
   { label: "Чашечки Пинки", stats: [ stat("wins_cups", "Победы"), stat("games_cups", "Сыграно") ] },
+  { label: "Рыбалка", stats: [ stat("best_fish_cm", "Самая крупная рыба", v => v + " см"), stat("wins_fishing", "Поймано рыб"), stat("games_fishing", "Забросов") ] },
   { label: "Против игроков", stats: [
     stat("pvpwins", "Победы, всего"), stat("pvpwins_dance", "Победы в танце"), stat("pvpwins_skyrace", "Победы в небе"), stat("pvpwins_groundrace", "Победы на роликах"), stat("pvpwins_rampage", "Победы в таране"), stat("pvpwins_tailtag", "Победы в хвостиках"), stat("pvpwins_football", "Победы в футболе"), stat("pvpwins_herding", "Победы в «Гончих пони»"),
   ] },
