@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Песни для «Танца» — Maretime Bay</title>
+<title>Песни для «Танца» — Mane Town</title>
 <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="stylesheet" href="/static/site.css">
 <script src="/static/theme.js"></script>
@@ -70,7 +70,7 @@
 <body>
 <div class="bar"></div>
 <main>
-  <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Maretime Bay · песни</b><span id="account"></span></div>
+  <div class="top"><b><img class="logo" src="/static/logo.svg" alt="" width="26" height="26">Mane Town · песни</b><span id="account"></span></div>
   <nav class="links"><a href="/">Рекорды</a><a href="/songs" class="on">Песни</a><a href="/my-songs">Мои песни</a><a href="/me">Моя статистика</a><a href="/rules">Правила</a></nav>
   <div id="list">
     <div class="bar2">
@@ -168,7 +168,7 @@ async function page(u) {
   let s = await r.json();
   if (s.status && !s.published) { box.textContent = "Песня ещё не опубликована. "; box.appendChild(a("Открыть в редакторе", "/editor/" + u)); return; }
   if (s.status) s = s.published;   // the author / an admin got the working copy: show the published one here
-  document.title = tx("{0} — песни Maretime Bay", s.title);
+  document.title = tx("{0} — песни Mane Town", s.title);
   const head = el("div", null, "head"); const hi = el("img"); hi.src = s.cover; hi.alt = "Обложка"; head.appendChild(hi);
   const ht = el("div"); ht.appendChild(el("h1", s.title));
   const sub = el("div", null, "note"); if (s.artist) sub.append(s.artist, " · "); sub.append("автор", " ");

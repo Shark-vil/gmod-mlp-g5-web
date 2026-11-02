@@ -46,11 +46,11 @@
     "одобрена": "approved", "отклонена": "rejected", "Не получилось: {0}": "Didn't work: {0}", "{n} нот": "{n} notes",
 
     // ---------------------------------------------------------------- the leaderboard + stats (index, me, stats.js)
-    "Maretime Bay — рекорды": "Maretime Bay — leaderboard", "Maretime Bay · рекорды": "Maretime Bay · leaderboard",
+    "Mane Town — рекорды": "Mane Town — leaderboard", "Mane Town · рекорды": "Mane Town · leaderboard",
     "Категория": "Category", "Показатель": "Stat", "Найти пони по нику": "Find a pony by name", "Поиск по нику": "Search by name",
     "Всё открывается только игрой. Никакого доната. Нажмите на игрока — его статистика.": "Everything is unlocked by playing only. No donations. Click a player for their stats.",
     "Сервер статистики недоступен": "The stats server is unavailable", "Никого с таким ником": "Nobody with that name", "Пока пусто": "Empty so far",
-    "Моя статистика — Maretime Bay": "My stats — Maretime Bay", "Здесь ваша статистика из игры.": "Your stats from the game are here.",
+    "Моя статистика — Mane Town": "My stats — Mane Town", "Здесь ваша статистика из игры.": "Your stats from the game are here.",
     "Профиль Steam": "Steam profile", "Статистика": "Stats",
     "Статистики пока нет: сыграйте на сервере с модом (сайт получает её с серверов).": "No stats yet: play on a server with the mod (the site gets them from the servers).",
     "Общее": "General", "Звёзды за всё время": "Stars, all time", "Коллекция": "Collection", "Заклинания": "Spells", "Время в игре": "Time played",
@@ -64,17 +64,17 @@
     "Играл(а) за": "Played as", "Не получилось загрузить": "Couldn't load", "{n} ч": "{n} h", "{n} мин": "{n} min",
 
     // ---------------------------------------------------------------- songs (songs.html)
-    "Песни для «Танца» — Maretime Bay": "Songs for «Dance» — Maretime Bay", "Maretime Bay · песни": "Maretime Bay · songs",
+    "Песни для «Танца» — Mane Town": "Songs for «Dance» — Mane Town", "Mane Town · песни": "Mane Town · songs",
     "Найти песню, исполнителя или автора": "Find a song, artist or author", "Поиск песен": "Search songs",
     "Песен пока нет — загрузите первую в «Мои песни»": "No songs yet — upload the first one in «My songs»",
     "Песни для мини-игры «Танец». Их делают игроки в редакторе (вкладка «Мои песни») и выкладывают модом в Мастерскую; в игре песню выбирают голосованием в лобби, мод скачивается сам. Здесь звучит только фрагмент.": "Songs for the «Dance» minigame. Players make them in the editor («My songs») and put them on the Workshop as a mod; in the game a song is picked by a vote in the lobby and its mod downloads by itself. Only a fragment plays here.",
     "Показать ещё": "Show more", "← Все песни": "← All songs", "Такой песни нет (или она ещё не опубликована).": "No such song (or it's not published yet).",
     "Песня ещё не опубликована.": "The song isn't published yet.", "Открыть в редакторе": "Open in the editor",
     "В игре: зона «Танец» → голосование в лобби. Если мода песни у вас нет, игра скачает его сама и сверит с сайтом.": "In the game: the «Dance» zone → the lobby's vote. If you don't have the song's mod, the game downloads it and checks it against the site.",
-    "Нот": "Notes", "Удержаний": "Holds", "Версия": "Version", "Опубликована": "Published", "{0} — песни Maretime Bay": "{0} — Maretime Bay songs",
+    "Нот": "Notes", "Удержаний": "Holds", "Версия": "Version", "Опубликована": "Published", "{0} — песни Mane Town": "{0} — Mane Town songs",
 
     // ---------------------------------------------------------------- my songs (my-songs.html)
-    "Мои песни — Maretime Bay": "My songs — Maretime Bay", "Мои песни для «Танца»": "My songs for «Dance»",
+    "Мои песни — Mane Town": "My songs — Mane Town", "Мои песни для «Танца»": "My songs for «Dance»",
     "Здесь ваши песни для «Танца»: загрузка, редактор нот, сборка мода.": "Your songs for «Dance» are here: upload, the note editor, building the mod.",
     "Нужно войти через Steam": "You need to sign in with Steam", "Песен пока нет — загрузите первую ниже.": "No songs yet — upload the first one below.",
     "Название песни": "Song title", "Исполнитель (необязательно)": "Artist (optional)", "Файл песни": "Song file",
@@ -88,7 +88,7 @@
     "Удалить песню «{0}» вместе со звуком?": "Delete the song «{0}» together with its sound?",
 
     // ---------------------------------------------------------------- admin (admin.html)
-    "Админка — Maretime Bay": "Admin — Maretime Bay", "Maretime Bay · админка": "Maretime Bay · admin", "Админка": "Admin",
+    "Админка — Mane Town": "Admin — Mane Town", "Mane Town · админка": "Mane Town · admin", "Админка": "Admin",
     "Админка — после входа.": "Admin — after signing in.", "Это страница админов сайта.": "This is the site admins' page.",
     "На проверке": "In review", "Все песни": "All songs", "Запрещённые слова": "Banned words", "Очередь пуста": "The queue is empty",
     "Название, исполнитель, автор, SteamID, uuid, номер мода": "Title, artist, author, SteamID, uuid, mod number",
@@ -106,7 +106,7 @@
     "Удалить песню «{0}» насовсем (вместе со звуком)?": "Delete the song «{0}» for good (with its sound)?",
 
     // ---------------------------------------------------------------- the song editor (editor.html)
-    "Редактор песни — Maretime Bay": "Song editor — Maretime Bay", "Maretime Bay · редактор песни": "Maretime Bay · song editor",
+    "Редактор песни — Mane Town": "Song editor — Mane Town", "Mane Town · редактор песни": "Mane Town · song editor",
     "Редактор — после входа.": "The editor — after signing in.", "Песня не найдена (или это не ваша песня).": "Song not found (or it isn't yours).",
     "Песня обрабатывается: темп, сетка долей, фрагмент… (страница обновится сама)": "Processing the song: tempo, beat grid, fragment… (the page updates by itself)",
     "Полного трека нет на сайте — редактировать нельзя.": "The full track isn't on the site — it can't be edited.",
@@ -279,8 +279,8 @@
     "#help4": "<kbd>X</kbd> — mirror the picked (← ↔ →, ↑ ↔ ↓): a chorus repeated the other way. <kbd>F</kbd> — fill by grid: a note on every snap step between the first and the last picked note (the brush's direction). <kbd>M</kbd> — metronome, «Speed» 0.75× / 0.5× — place notes slowly (and record too).",
 
     // moderation, rules, genres, tags, age marks, trust (14.10.2026)
-    "Правила": "Rules", "Правила песен": "Song rules", "правила песен": "song rules", "Правила песен — Maretime Bay": "Song rules — Maretime Bay",
-    "Maretime Bay · правила": "Maretime Bay · rules", "Правила загрузки песен": "Rules for uploading songs", "Запрещено": "Not allowed",
+    "Правила": "Rules", "Правила песен": "Song rules", "правила песен": "song rules", "Правила песен — Mane Town": "Song rules — Mane Town",
+    "Mane Town · правила": "Mane Town · rules", "Правила загрузки песен": "Rules for uploading songs", "Запрещено": "Not allowed",
     "Названия и теги": "Titles and tags", "Возрастные метки": "Age marks", "Проверка": "Review",
     "#rIntro": "The site and the «Dance» minigame are made for fun: players dance to songs in the world of My Little Pony. A song and everything about it is seen and heard by players of all ages — so songs have rules. They cover the song itself (its sound and lyrics) and everything you write about it: the title, the artist, the tags, the source, the cover, and the title and description of the mod on the Steam Workshop.",
     "#rBan": '<li>Promoting or justifying terrorism, extremism, violence and cruelty.</li><li>Stirring up hatred and hostility over nationality, race, religion, sex, orientation or anything else; insulting groups of people.</li><li>Political content: campaigning, slogans, symbols of parties, movements and states in a political sense, songs about politics and politicians.</li><li>Acute social topics that hurt people and set them against each other: wars and armed conflicts, terrorist attacks and tragedies, calls for protests.</li><li>Pornography and explicit sexual content. A light subtext is allowed only with the «sexual subtext» mark.</li><li>Bullying and insulting particular people, other people\'s personal data.</li><li>Ads, links and spam in the title, the artist or the tags; deception — for example, someone else\'s song title.</li><li>Anything that breaks the <a href="https://store.steampowered.com/online_conduct/" target="_blank" rel="noopener">Steam Online Conduct</a> — the songs are published on its Workshop.</li>',
@@ -288,13 +288,13 @@
     "#rAge": 'Mark it in the editor if the song has swearing or a sexual subtext. Swearing or a subtext — <span class="age">16+</span>, swearing and a subtext together or swearing in over 20 % of the lyrics — <span class="age a18">18+</span>. Such songs are hidden on the site and in the game by default: only those who turn them on themselves see them. A song without the right mark is rejected.',
     "#rCheck": "<li>Before sending a song for review the site checks its title, artist, tags, source and the mod's Workshop description by itself. If the filter is hit, the song can't be sent — change that data.</li><li>Then an admin reviews the song: approves it or rejects it with a reason.</li><li>An author whose songs pass the review again and again gets the «trusted author» mark: new versions of their published songs are published at once. Rejections and filter hits lower the trust, and the mark can be lost.</li><li>For gross or repeated violations the song is deleted and the author can't upload any more.</li>",
     "#rRights": "Respect the songs' authors: name the artist and the source. If a rights holder asks to remove a song, it is removed.",
-    "Переход на другой сайт — Maretime Bay": "Leaving for another site — Maretime Bay", "Вы покидаете сайт": "You are leaving the site",
+    "Переход на другой сайт — Mane Town": "Leaving for another site — Mane Town", "Вы покидаете сайт": "You are leaving the site",
     "Ссылка ведёт на сайт": "The link leads to", "Перейти": "Go", "Перейти на {0}": "Go to {0}",
     "Ссылка неправильная или небезопасная — переход отменён.": "The link is wrong or unsafe — not going there.",
     // ---------------------------------------------------------------- link.html: the game's Steam link (HoofTour)
-    "Привязка игры — Maretime Bay": "Linking the game — Maretime Bay", "Привязка игры к Steam — HoofTour": "Linking the game to Steam — HoofTour",
+    "Привязка игры — Mane Town": "Linking the game — Mane Town", "Привязка игры к Steam — HoofTour": "Linking the game to Steam — HoofTour",
     "Загрузка…": "Loading…",
-    "Garry's Mod (мод MLP: Maretime Bay) просит разрешение выкладывать ваш офис на HoofTour от вашего имени.": "Garry's Mod (the MLP: Maretime Bay mod) asks to upload your office to HoofTour as you.",
+    "Garry's Mod (мод MLP: Mane Town) просит разрешение выкладывать ваш офис на HoofTour от вашего имени.": "Garry's Mod (the MLP: Mane Town mod) asks to upload your office to HoofTour as you.",
     "Слова привязки:": "The link words:",
     "#linkNote": "<b>This is NOT a Steam Guard code</b> and not a password. Don't type it anywhere. Just compare: the computer screen in your game office must show the same words. If you didn't just press «Sign in with Steam» in the game, or the words differ, close this page: somebody is trying to get at your office.",
     "Сначала войдите через Steam тем же аккаунтом, что и в игре.": "First sign in with Steam, with the same account you play with.",
@@ -306,7 +306,7 @@
     "Привязка отменена. Эту страницу можно закрыть.": "Linking cancelled. You can close this page.",
     "Не получилось привязать. Нажмите «Войти через Steam» в игре ещё раз.": "Couldn't link. Press «Sign in with Steam» in the game again.",
     "Сайт не отвечает. Попробуйте ещё раз.": "The site doesn't answer. Try again.",
-    "#awayWarn": "This link was given by a user; the Maretime Bay site doesn't check what's behind it. The other site may have anything — including unpleasant, shocking or dangerous content (scams, viruses). Go there only if you're sure where the link leads and understand the risks.",
+    "#awayWarn": "This link was given by a user; the Mane Town site doesn't check what's behind it. The other site may have anything — including unpleasant, shocking or dangerous content (scams, viruses). Go there only if you're sure where the link leads and understand the risks.",
     "Найти песню, исполнителя, автора или тег": "Find a song, an artist, an author or a tag", "Жанр": "Genre", "все жанры": "all genres",
     "Песни с метками 16+ / 18+ скрыты, пока вы их не включите": "Songs marked 16+ / 18+ are hidden until you turn them on",
     "без меток 16+ / 18+": "no 16+ / 18+ marks", "показывать 16+": "show 16+", "показывать 16+ и 18+": "show 16+ and 18+",
